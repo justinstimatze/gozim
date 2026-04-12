@@ -9,7 +9,7 @@ import (
 
 // Archive is the primary type for reading ZIM files.
 type Archive struct {
-	r      *ZimReader
+	r      *zimReader
 	meta   metadataCache
 	search searchState
 }
@@ -56,7 +56,7 @@ func Open(path string, opts ...Option) (*Archive, error) {
 }
 
 // EntryCount returns the number of entries in the archive.
-func (a *Archive) EntryCount() uint32 { return a.r.ArticleCount }
+func (a *Archive) EntryCount() uint32 { return a.r.articleCount }
 
 // ClusterCount returns the number of clusters in the archive.
 func (a *Archive) ClusterCount() uint32 { return a.r.clusterCount }
@@ -134,7 +134,7 @@ func (a *Archive) SearchTitles(prefix string, limit int) ([]Entry, error) {
 	fullPrefix := string(articleNS) + prefix
 
 	// Binary search on the title pointer list
-	lo, hi := uint32(0), a.r.ArticleCount
+	lo, hi := uint32(0), a.r.articleCount
 	for lo < hi {
 		mid := lo + (hi-lo)/2
 		ns, title, err := a.readTitleAtTitleIdx(mid)
@@ -151,7 +151,7 @@ func (a *Archive) SearchTitles(prefix string, limit int) ([]Entry, error) {
 
 	// Scan forward collecting matches
 	var results []Entry
-	for i := lo; i < a.r.ArticleCount && len(results) < limit; i++ {
+	for i := lo; i < a.r.articleCount && len(results) < limit; i++ {
 		ns, title, err := a.readTitleAtTitleIdx(i)
 		if err != nil {
 			continue

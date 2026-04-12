@@ -5,7 +5,7 @@ import "iter"
 // Entries returns an iterator over all entries in URL index order.
 func (a *Archive) Entries() iter.Seq2[uint32, Entry] {
 	return func(yield func(uint32, Entry) bool) {
-		for idx := uint32(0); idx < a.r.ArticleCount; idx++ {
+		for idx := uint32(0); idx < a.r.articleCount; idx++ {
 			art, err := a.r.ArticleAtURLIdx(idx)
 			if err != nil {
 				continue
@@ -20,7 +20,7 @@ func (a *Archive) Entries() iter.Seq2[uint32, Entry] {
 // Articles returns an iterator over front articles only (navigable content, not redirects).
 func (a *Archive) Articles() iter.Seq2[uint32, Entry] {
 	return func(yield func(uint32, Entry) bool) {
-		for idx := uint32(0); idx < a.r.ArticleCount; idx++ {
+		for idx := uint32(0); idx < a.r.articleCount; idx++ {
 			art, err := a.r.ArticleAtURLIdx(idx)
 			if err != nil {
 				continue
@@ -40,7 +40,7 @@ func (a *Archive) Articles() iter.Seq2[uint32, Entry] {
 func (a *Archive) EntriesByTitle() iter.Seq2[uint32, Entry] {
 	return func(yield func(uint32, Entry) bool) {
 		var count uint32
-		for pos := a.r.titlePtrPos; count < a.r.ArticleCount; pos += 4 {
+		for pos := a.r.titlePtrPos; count < a.r.articleCount; pos += 4 {
 			b, err := a.r.bytesRangeAt(pos, pos+4)
 			if err != nil {
 				count++
@@ -68,7 +68,7 @@ func (a *Archive) EntriesInNamespace(ns byte) iter.Seq2[uint32, Entry] {
 		if err != nil {
 			return
 		}
-		for idx := lo; idx < a.r.ArticleCount; idx++ {
+		for idx := lo; idx < a.r.articleCount; idx++ {
 			art, err := a.r.ArticleAtURLIdx(idx)
 			if err != nil {
 				continue

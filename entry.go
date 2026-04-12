@@ -4,7 +4,7 @@ import "fmt"
 
 // Entry represents a single entry in a ZIM archive.
 type Entry struct {
-	article *Article
+	article *article
 	archive *Archive
 }
 
@@ -28,7 +28,7 @@ func (e Entry) FullPath() string {
 
 // Content returns the decompressed content of this entry.
 func (e Entry) Content() ([]byte, error) {
-	return e.article.Data()
+	return e.article.data()
 }
 
 // MimeType returns the MIME type string for this entry.

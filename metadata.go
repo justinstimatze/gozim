@@ -27,7 +27,7 @@ func (a *Archive) parseMetadata() error {
 	}
 
 	// Scan forward through namespace M entries
-	for idx := lo; idx < a.r.ArticleCount; idx++ {
+	for idx := lo; idx < a.r.articleCount; idx++ {
 		art, err := a.r.ArticleAtURLIdx(idx)
 		if err != nil {
 			continue
@@ -39,7 +39,7 @@ func (a *Archive) parseMetadata() error {
 		if art.EntryType == RedirectEntry || art.EntryType == LinkTargetEntry || art.EntryType == DeletedEntry {
 			continue
 		}
-		data, err := art.Data()
+		data, err := art.data()
 		if err != nil {
 			continue
 		}
@@ -51,9 +51,9 @@ func (a *Archive) parseMetadata() error {
 // lowerBound returns the first URL index position where FullURL() >= prefix.
 func (a *Archive) lowerBound(prefix string) (uint32, error) {
 	var lo uint32
-	hi := a.r.ArticleCount
+	hi := a.r.articleCount
 
-	art := new(Article)
+	art := new(article)
 	for lo < hi {
 		mid := lo + (hi-lo)/2
 		offset, err := a.r.OffsetAtURLIdx(mid)

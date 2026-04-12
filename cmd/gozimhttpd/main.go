@@ -12,18 +12,7 @@ import (
 	"strconv"
 
 	zim "github.com/justinstimatze/gozim"
-	"github.com/blevesearch/bleve/v2"
 	lru "github.com/hashicorp/golang-lru/v2"
-
-	_ "github.com/blevesearch/bleve/v2/analysis/lang/ar"
-	_ "github.com/blevesearch/bleve/v2/analysis/lang/cjk"
-	_ "github.com/blevesearch/bleve/v2/analysis/lang/ckb"
-	_ "github.com/blevesearch/bleve/v2/analysis/lang/en"
-	_ "github.com/blevesearch/bleve/v2/analysis/lang/fa"
-	_ "github.com/blevesearch/bleve/v2/analysis/lang/fr"
-	_ "github.com/blevesearch/bleve/v2/analysis/lang/hi"
-	_ "github.com/blevesearch/bleve/v2/analysis/lang/it"
-	_ "github.com/blevesearch/bleve/v2/analysis/lang/pt"
 )
 
 type ResponseType int8
@@ -34,7 +23,6 @@ const (
 	NoResponse
 )
 
-// CachedResponse cache the answer to an URL in the zim
 type CachedResponse struct {
 	ResponseType ResponseType
 	Data         []byte
@@ -45,14 +33,12 @@ var (
 	port       = flag.Int("port", -1, "port to listen to, read HOST env if not specified, default to 8080 otherwise")
 	zimPath    = flag.String("path", "", "path for the zim file")
 	indexPath  = flag.String("index", "", "path for the index file")
-	mmap       = flag.Bool("mmap", false, "use mmap")
+	mmapFlag   = flag.Bool("mmap", false, "use mmap")
 	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 
-	Z *zim.ZimReader
-	// Cache is filled with CachedResponse to avoid hitting the zim file for a zim URL
-	cache *lru.Cache[string, CachedResponse]
-	idx   bool
-	index bleve.Index
+	archive *zim.Archive
+	cache   *lru.Cache[string, CachedResponse]
+	idx     bool
 
 	templates *template.Template
 
@@ -69,10 +55,6 @@ func main() {
 	flag.Parse()
 	if *zimPath == "" {
 		log.Fatal("provide a zim file path")
-	}
-
-	if *mmap {
-		log.Println("Using mmap")
 	}
 
 	if *cpuprofile != "" {
@@ -93,20 +75,26 @@ func main() {
 		}()
 	}
 
-	// Do we have an index ?
+	// Open the archive
+	var opts []zim.Option
+	if *mmapFlag {
+		log.Println("Using mmap")
+		opts = append(opts, zim.WithMmap())
+	}
+
+	var err error
+	archive, err = zim.Open(*zimPath, opts...)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer archive.Close()
+
+	// Check for search index
 	if indexPath != nil && *indexPath != "" {
 		if _, err := os.Stat(*indexPath); err != nil {
 			log.Fatal(err)
 		}
-
 		idx = true
-
-		// open the db
-		var err error
-		index, err = bleve.Open(*indexPath)
-		if err != nil {
-			log.Fatal(err)
-		}
 	}
 
 	tpls, err := template.ParseFS(templateFS, "templates/*.html")
@@ -115,46 +103,28 @@ func main() {
 	}
 	templates = tpls
 
-	// static file handler
 	fileServer := http.FileServer(http.FS(staticFS))
 	http.Handle("/static/", fileServer)
 
-	// compress wiki pages
 	http.HandleFunc("/zim/", makeGzipHandler(zimHandler))
-	z, err := zim.NewReader(*zimPath, *mmap)
-	Z = z
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// tpl
 	http.HandleFunc("/search/", makeGzipHandler(searchHandler))
 	http.HandleFunc("/browse/", makeGzipHandler(browseHandler))
 	http.HandleFunc("/about/", makeGzipHandler(aboutHandler))
 	http.HandleFunc("/robots.txt", robotHandler)
 	http.HandleFunc("/", makeGzipHandler(homeHandler))
 
-	// the need for a cache is absolute
-	// a lot of the same urls will be called repeatedly, css, js ...
-	// avoid to look for those one
 	cache, _ = lru.New[string, CachedResponse](40)
 
-	// default listening to port 8080
 	listenPath := ":8080"
-
 	if len(os.Getenv("PORT")) > 0 {
 		listenPath = ":" + os.Getenv("PORT")
 	}
-
 	if port != nil && *port > 0 {
 		listenPath = ":" + strconv.Itoa(*port)
 	}
 
-	// Opening large indexes could takes minutes on raspberry
 	log.Println("Listening on", listenPath)
-
-	err = http.ListenAndServe(listenPath, nil)
-	if err != nil {
+	if err := http.ListenAndServe(listenPath, nil); err != nil {
 		log.Fatal(err)
 	}
 }

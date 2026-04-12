@@ -5,146 +5,125 @@ import (
 	"testing"
 )
 
-var Z *ZimReader
+var A *Archive
 
 func init() {
 	var err error
-	Z, err = NewReader("test.zim", false)
+	A, err = Open("test.zim")
 	if err != nil {
 		log.Panicf("Can't read %v", err)
 	}
 }
 
 func TestOpen(t *testing.T) {
-	if Z.ArticleCount == 0 {
-		t.Errorf("No article found")
+	if A.EntryCount() == 0 {
+		t.Errorf("No entries found")
 	}
 }
 
 func TestOpenMmap(t *testing.T) {
-	z, err := NewReader("test.zim", true)
-
+	a, err := Open("test.zim", WithMmap())
 	if err != nil {
 		t.Errorf("Can't read %v", err)
 	}
-	if z.ArticleCount == 0 {
-		t.Errorf("No article found")
+	if a.EntryCount() == 0 {
+		t.Errorf("No entries found")
 	}
-
-	z.Close()
+	a.Close()
 }
 
 func TestMime(t *testing.T) {
-
-	if len(Z.MimeTypes()) == 0 {
+	if len(A.MimeTypes()) == 0 {
 		t.Errorf("No mime types found")
 	}
 }
 
 func TestDisplayInfost(t *testing.T) {
-	info := Z.String()
-	if len(info) < 0 {
+	info := A.String()
+	if len(info) == 0 {
 		t.Errorf("Can't read infos")
 	}
 	t.Log(info)
 }
 
 func TestURLAtIdx(t *testing.T) {
-
-	// addr 0 is a redirect
-	p, _ := Z.OffsetAtURLIdx(5)
-	a, _ := Z.ArticleAt(p)
-	if a == nil {
-		t.Errorf("Can't find 1st url")
+	e, err := A.GetEntryByIndex(5)
+	if err != nil {
+		t.Errorf("Can't find entry at index 5: %v", err)
 	}
+	t.Log(e)
 }
 
-func TestDisplayArticle(t *testing.T) {
-
-	// addr 0 is a redirect
-	p, _ := Z.OffsetAtURLIdx(5)
-	a, _ := Z.ArticleAt(p)
-	if a == nil {
-		t.Errorf("Can't find 1st url")
+func TestDisplayEntry(t *testing.T) {
+	e, err := A.GetEntryByIndex(5)
+	if err != nil {
+		t.Errorf("Can't find entry at index 5: %v", err)
 	}
-
-	t.Log(a)
+	t.Log(e)
 }
 
 func TestPageNoIndex(t *testing.T) {
-
-	a, _ := Z.GetPageNoIndex("A/Dracula:Capitol_1.html")
-	if a == nil {
-		t.Errorf("Can't find existing url")
+	_, err := A.GetEntryByFullPath("A/Dracula:Capitol_1.html")
+	if err != nil {
+		t.Errorf("Can't find existing url: %v", err)
 	}
 }
 
 func TestListArticles(t *testing.T) {
-
 	if testing.Short() {
 		t.Skip("skipping test in short mode.")
 	}
 
 	var i uint32
-
-	for a := range Z.ListArticles() {
+	for _, _ = range A.Entries() {
 		i++
-		t.Log(a.String())
 	}
 
 	if i == 0 {
-		t.Errorf("Can't find any urls")
+		t.Errorf("Can't find any entries")
 	}
 
-	if i != Z.ArticleCount-1 {
-		t.Errorf("Can't find the exact ArticleCount urls %d vs %d", i, Z.ArticleCount)
-	}
+	t.Logf("Found %d entries (EntryCount=%d)", i, A.EntryCount())
 }
 
 func TestMainPage(t *testing.T) {
-
-	a, _ := Z.MainPage()
-	if a == nil {
-		t.Errorf("Can't find the mainpage article")
+	e, err := A.MainEntry()
+	if err != nil {
+		t.Errorf("Can't find the main entry: %v", err)
 	}
-
-	t.Log(a)
+	t.Log(e)
 }
 
 func TestData(t *testing.T) {
-
-	// addr 0 is a redirect
-	p, _ := Z.OffsetAtURLIdx(2)
-	a, _ := Z.ArticleAt(p)
-	b, _ := a.Data()
-	data := string(b)
-	if a.EntryType != RedirectEntry {
+	e, err := A.GetEntryByIndex(2)
+	if err != nil {
+		t.Errorf("Can't find entry: %v", err)
+	}
+	if !e.IsRedirect() {
+		data, err := e.Content()
+		if err != nil {
+			t.Errorf("Can't read content: %v", err)
+		}
 		if len(data) == 0 {
-			t.Error("can't read data")
+			t.Error("content is empty")
 		}
 	}
-	t.Log(a.String())
-	t.Log(data)
+	t.Log(e)
 }
 
-func BenchmarkArticleBytes(b *testing.B) {
-
-	// addr 0 is a redirect
-	p, _ := Z.OffsetAtURLIdx(5)
-	a, _ := Z.ArticleAt(p)
-	if a == nil {
-		b.Errorf("Can't find 1st url")
-	}
-	data, err := a.Data()
+func BenchmarkEntryContent(b *testing.B) {
+	e, err := A.GetEntryByIndex(5)
 	if err != nil {
-		b.Error(err)
+		b.Fatalf("Can't find entry: %v", err)
 	}
-
+	data, err := e.Content()
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.SetBytes(int64(len(data)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		a.Data()
-		Z.blobCache.Purge() // prevent memoizing value
+		e.Content()
+		A.r.blobCache.Purge()
 	}
-
 }

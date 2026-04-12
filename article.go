@@ -14,9 +14,9 @@ const (
 	DeletedEntry    uint16 = 0xfffd
 )
 
-type Article struct {
+type article struct {
 	// EntryType is a RedirectEntry/LinkTargetEntry/DeletedEntry or an idx
-	// pointing to ZimReader.mimeTypeList
+	// pointing to zimReader.mimeTypeList
 	EntryType uint16
 	Title     string
 	URLPtr    uint64
@@ -24,11 +24,11 @@ type Article struct {
 	url       string
 	blob      uint32
 	cluster   uint32
-	z         *ZimReader
+	z         *zimReader
 }
 
 // ArticleAtURLIdx returns the Article at URL index idx.
-func (z *ZimReader) ArticleAtURLIdx(idx uint32) (*Article, error) {
+func (z *zimReader) ArticleAtURLIdx(idx uint32) (*article, error) {
 	o, err := z.OffsetAtURLIdx(idx)
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func (z *ZimReader) ArticleAtURLIdx(idx uint32) (*Article, error) {
 }
 
 // MainPage returns the article designated as the main page, if any.
-func (z *ZimReader) MainPage() (*Article, error) {
+func (z *zimReader) MainPage() (*article, error) {
 	if z.mainPage == 0xffffffff {
 		return nil, nil
 	}
@@ -45,14 +45,14 @@ func (z *ZimReader) MainPage() (*Article, error) {
 }
 
 // ArticleAt returns the Article at the given file offset using the article pool.
-func (z *ZimReader) ArticleAt(offset uint64) (*Article, error) {
-	a := z.articlePool.Get().(*Article)
+func (z *zimReader) ArticleAt(offset uint64) (*article, error) {
+	a := z.articlePool.Get().(*article)
 	err := z.FillArticleAt(a, offset)
 	return a, err
 }
 
 // FillArticleAt fills an Article with data found at the given offset.
-func (z *ZimReader) FillArticleAt(a *Article, offset uint64) error {
+func (z *zimReader) FillArticleAt(a *article, offset uint64) error {
 	a.z = z
 	a.URLPtr = offset
 
@@ -130,7 +130,7 @@ func (z *ZimReader) FillArticleAt(a *Article, offset uint64) error {
 }
 
 // Data returns the uncompressed data associated with this article.
-func (a *Article) Data() ([]byte, error) {
+func (a *article) data() ([]byte, error) {
 	if a.EntryType == RedirectEntry || a.EntryType == LinkTargetEntry || a.EntryType == DeletedEntry {
 		return nil, nil
 	}
@@ -155,7 +155,7 @@ func (a *Article) Data() ([]byte, error) {
 	}
 }
 
-func (a *Article) readCompressed(start, end uint64, compression uint8, extended bool) ([]byte, error) {
+func (a *article) readCompressed(start, end uint64, compression uint8, extended bool) ([]byte, error) {
 	blob, ok := a.z.blobCache.Get(a.cluster)
 	if !ok {
 		b, err := a.z.bytesRangeAt(start+1, end+1)
@@ -191,7 +191,7 @@ func (a *Article) readCompressed(start, end uint64, compression uint8, extended 
 	return c, nil
 }
 
-func (a *Article) readUncompressed(start uint64, extended bool) ([]byte, error) {
+func (a *article) readUncompressed(start uint64, extended bool) ([]byte, error) {
 	startPos := start + 1
 
 	if extended {
@@ -238,7 +238,7 @@ func blobOffsets(data []byte, blobIdx uint32, extended bool) (start, end uint64)
 }
 
 // MimeType returns the MIME type string for this article.
-func (a *Article) MimeType() string {
+func (a *article) MimeType() string {
 	if a.EntryType == RedirectEntry || a.EntryType == LinkTargetEntry || a.EntryType == DeletedEntry {
 		return ""
 	}
@@ -246,17 +246,17 @@ func (a *Article) MimeType() string {
 }
 
 // FullURL returns the URL prefixed by the namespace (e.g., "A/page").
-func (a *Article) FullURL() string {
+func (a *article) FullURL() string {
 	return string(a.Namespace) + "/" + a.url
 }
 
-func (a *Article) String() string {
+func (a *article) String() string {
 	return fmt.Sprintf("Mime: 0x%x URL: [%s], Title: [%s], Cluster: 0x%x Blob: 0x%x",
 		a.EntryType, a.FullURL(), a.Title, a.cluster, a.blob)
 }
 
 // RedirectIndex returns the redirect target index for RedirectEntry type articles.
-func (a *Article) RedirectIndex() (uint32, error) {
+func (a *article) RedirectIndex() (uint32, error) {
 	if a.EntryType != RedirectEntry {
 		return 0, errors.New("not a redirect entry")
 	}
