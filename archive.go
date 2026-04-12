@@ -2,14 +2,16 @@ package zim
 
 import (
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"io"
 )
 
 // Archive is the primary type for reading ZIM files.
 type Archive struct {
-	r    *ZimReader
-	meta metadataCache
+	r      *ZimReader
+	meta   metadataCache
+	search searchState
 }
 
 type archiveConfig struct {
@@ -227,7 +229,9 @@ func (a *Archive) ValidateChecksum() (bool, error) {
 
 // Close releases all resources associated with the archive.
 func (a *Archive) Close() error {
-	return a.r.Close()
+	searchErr := a.closeSearch()
+	readerErr := a.r.Close()
+	return errors.Join(searchErr, readerErr)
 }
 
 func (a *Archive) String() string {

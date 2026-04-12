@@ -389,6 +389,83 @@ func TestValidateChecksumMmap(t *testing.T) {
 	}
 }
 
+func TestSearch(t *testing.T) {
+	a, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	idxPath := t.TempDir() + "/test.bleve"
+
+	results, err := a.Search("Dracula", 5, WithIndexPath(idxPath))
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("no results for 'Dracula'")
+	}
+	for _, r := range results {
+		t.Logf("  %.1f %s (title: %s)", r.Score, r.Entry.FullPath(), r.Entry.Title())
+	}
+}
+
+func TestSearchPersistence(t *testing.T) {
+	idxPath := t.TempDir() + "/persist.bleve"
+
+	// Build index
+	a1, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	_, err = a1.Search("Dracula", 1, WithIndexPath(idxPath))
+	if err != nil {
+		t.Fatalf("Search (build): %v", err)
+	}
+	a1.Close()
+
+	// Reopen and search using persisted index
+	a2, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a2.Close()
+
+	results, err := a2.Search("Dracula", 5, WithIndexPath(idxPath))
+	if err != nil {
+		t.Fatalf("Search (persisted): %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("no results from persisted index")
+	}
+	t.Logf("Found %d results from persisted index", len(results))
+}
+
+func TestSearchWithOffset(t *testing.T) {
+	a, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	idxPath := t.TempDir() + "/offset.bleve"
+
+	all, err := a.Search("Dracula", 10, WithIndexPath(idxPath))
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	if len(all) > 1 {
+		page2, err := a.Search("Dracula", 10, WithIndexPath(idxPath), WithOffset(1))
+		if err != nil {
+			t.Fatalf("Search with offset: %v", err)
+		}
+		if len(page2) != len(all)-1 {
+			t.Errorf("expected %d results with offset 1, got %d", len(all)-1, len(page2))
+		}
+	}
+}
+
 func TestConcurrentOpen(t *testing.T) {
 	a1, err := Open("test.zim")
 	if err != nil {
