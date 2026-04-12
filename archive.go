@@ -39,7 +39,7 @@ func Open(path string, opts ...Option) (*Archive, error) {
 		o(&cfg)
 	}
 
-	r, err := NewReader(path, cfg.mmap)
+	r, err := newReader(path, cfg.mmap)
 	if err != nil {
 		return nil, err
 	}

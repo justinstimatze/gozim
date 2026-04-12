@@ -63,8 +63,8 @@
         {{with .Articles}}
           {{range .}}
           <tr>
-            <td><a href="/zim/{{ .FullURL }}">{{ .Title }}</a></td>
-            <td>{{ .MimeType }}</td>
+            <td><a href="{{ .URL }}">{{ .Title }}</a></td>
+            <td></td>
           </tr>
           {{end}}
         {{end}}

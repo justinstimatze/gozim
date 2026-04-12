@@ -44,8 +44,8 @@ func newBlobCache(size int) (*lru.Cache[uint32, []byte], error) {
 	return lru.New[uint32, []byte](size)
 }
 
-// NewReader creates a new ZIM reader. If mmap is true, the file is memory-mapped.
-func NewReader(path string, mmap bool) (*zimReader, error) {
+// newReader creates a new ZIM reader. If mmap is true, the file is memory-mapped.
+func newReader(path string, mmap bool) (*zimReader, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -235,6 +235,9 @@ func (z *zimReader) readTitleAt(urlIdx uint32) (namespace byte, title string, er
 // bytesRangeAt returns bytes from start to end, using mmap if available.
 func (z *zimReader) bytesRangeAt(start, end uint64) ([]byte, error) {
 	if len(z.mmap) > 0 {
+		if end > uint64(len(z.mmap)) {
+			return nil, fmt.Errorf("read beyond mmap: %d > %d", end, len(z.mmap))
+		}
 		return z.mmap[start:end], nil
 	}
 

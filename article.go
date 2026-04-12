@@ -55,6 +55,11 @@ func (z *zimReader) ArticleAt(offset uint64) (*article, error) {
 func (z *zimReader) FillArticleAt(a *article, offset uint64) error {
 	a.z = z
 	a.URLPtr = offset
+	a.Title = ""
+	a.url = ""
+	a.Namespace = 0
+	a.cluster = 0
+	a.blob = 0
 
 	b, err := z.bytesRangeAt(offset, offset+2)
 	if err != nil {
