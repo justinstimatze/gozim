@@ -52,7 +52,7 @@ for idx, entry := range archive.Articles() {
 ## Features
 
 - ZIM v5 and v6 format support
-- LZMA/XZ and Zstandard decompression (pure Go)
+- Zstandard decompression (pure Go)
 - Title prefix search via binary search on title index
 - Fulltext search via Bleve with lazy index building
 - Structured metadata (Title, Language, Creator, Date, etc.)

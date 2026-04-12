@@ -15,7 +15,7 @@ Only the latest release on the `main` branch is supported with security updates.
 gozim reads ZIM archive files which may come from untrusted sources. The library includes:
 
 - Binary parsing of ZIM headers and directory entries
-- LZMA/XZ and Zstandard decompression
+- Zstandard decompression
 - Optional fulltext search indexing via Bleve
 - An optional HTTP server (`gozimhttpd`)
 

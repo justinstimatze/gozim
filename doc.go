@@ -2,7 +2,7 @@
 //
 // ZIM is an archive format used primarily for offline Wikipedia content.
 // This package provides a pure Go implementation with zero CGO dependencies,
-// supporting ZIM v5 and v6 formats with LZMA/XZ and Zstandard decompression.
+// supporting ZIM v5 and v6 formats with Zstandard decompression.
 //
 // # Opening an Archive
 //

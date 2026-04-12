@@ -40,7 +40,13 @@ func (a *Archive) Articles() iter.Seq2[uint32, Entry] {
 }
 
 // EntriesByTitle returns an iterator over all entries in title-sorted order.
+// For v6 ZIM files (which lack a title pointer list), this falls back to
+// URL index order (which is already sorted by namespace+path).
 func (a *Archive) EntriesByTitle() iter.Seq2[uint32, Entry] {
+	// v6 ZIM files have no title pointer list
+	if a.r.titlePtrPos == 0xFFFFFFFFFFFFFFFF {
+		return a.Entries()
+	}
 	return func(yield func(uint32, Entry) bool) {
 		for i := uint32(0); i < a.r.articleCount; i++ {
 			pos := a.r.titlePtrPos + uint64(i)*4
