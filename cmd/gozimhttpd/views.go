@@ -140,6 +140,11 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(q) > 500 {
+		http.Error(w, "query too long", 400)
+		return
+	}
+
 	itemCount := 20
 	opts := []zim.SearchOption{
 		zim.WithOffset(itemCount * pageNumber),

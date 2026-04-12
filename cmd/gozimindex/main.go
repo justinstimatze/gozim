@@ -65,9 +65,7 @@ func main() {
 
 	fmt.Printf("Building index for %s (%d entries)...\n", *path, archive.EntryCount())
 
-	// Trigger index build by performing a search
-	_, err = archive.Search("__warmup__", 1, opts...)
-	if err != nil {
+	if err := archive.BuildIndex(opts...); err != nil {
 		log.Fatal(err)
 	}
 

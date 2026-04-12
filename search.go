@@ -37,13 +37,12 @@ func WithOffset(n int) SearchOption {
 }
 
 // WithContentIndexing enables indexing of article body text.
-// The extract function converts raw HTML/content bytes to plain text.
-// If nil, only titles are indexed.
+// The extract function converts raw content bytes to plain text for indexing.
 func WithContentIndexing(extract func([]byte) string) SearchOption {
 	return func(c *searchConfig) { c.extract = extract }
 }
 
-// WithAnalyzer sets the Bleve analyzer for indexing (e.g., "en", "fr", "standard").
+// WithAnalyzer sets the Bleve analyzer for indexing (e.g., "en", "ennostemm", "standard").
 func WithAnalyzer(name string) SearchOption {
 	return func(c *searchConfig) { c.analyzer = name }
 }
@@ -53,23 +52,40 @@ func WithBatchSize(n int) SearchOption {
 	return func(c *searchConfig) { c.batchSize = n }
 }
 
-// search state on Archive
 type searchState struct {
 	mu    sync.Mutex
 	index bleve.Index
-	path  string
 }
 
-// Search performs fulltext search on the archive. On the first call, it opens or builds
-// a Bleve index. The index is persisted to disk as <zimfile>.bleve/ by default.
-func (a *Archive) Search(query string, limit int, opts ...SearchOption) ([]SearchResult, error) {
-	cfg := searchConfig{
-		batchSize: 1000,
-		analyzer:  "standard",
+func (c *searchConfig) defaults() {
+	if c.batchSize <= 0 {
+		c.batchSize = 1000
 	}
+	if c.analyzer == "" {
+		c.analyzer = "standard"
+	}
+}
+
+// BuildIndex builds a fulltext search index without performing a search.
+// The index is persisted to disk and reused by subsequent Search() calls.
+func (a *Archive) BuildIndex(opts ...SearchOption) error {
+	cfg := searchConfig{}
 	for _, o := range opts {
 		o(&cfg)
 	}
+	cfg.defaults()
+	_, err := a.ensureIndex(cfg)
+	return err
+}
+
+// Search performs fulltext search on the archive. On the first call, it opens or builds
+// a Bleve index persisted to disk as <zimfile>.bleve/ by default.
+func (a *Archive) Search(query string, limit int, opts ...SearchOption) ([]SearchResult, error) {
+	cfg := searchConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	cfg.defaults()
 
 	idx, err := a.ensureIndex(cfg)
 	if err != nil {
@@ -95,10 +111,7 @@ func (a *Archive) Search(query string, limit int, opts ...SearchOption) ([]Searc
 		if err != nil {
 			continue
 		}
-		results = append(results, SearchResult{
-			Entry: entry,
-			Score: hit.Score,
-		})
+		results = append(results, SearchResult{Entry: entry, Score: hit.Score})
 	}
 	return results, nil
 }
@@ -121,7 +134,6 @@ func (a *Archive) ensureIndex(cfg searchConfig) (bleve.Index, error) {
 		idx, err := bleve.Open(idxPath)
 		if err == nil {
 			a.search.index = idx
-			a.search.path = idxPath
 			return idx, nil
 		}
 	}
@@ -132,7 +144,6 @@ func (a *Archive) ensureIndex(cfg searchConfig) (bleve.Index, error) {
 		return nil, err
 	}
 	a.search.index = idx
-	a.search.path = idxPath
 	return idx, nil
 }
 
@@ -169,15 +180,12 @@ func (a *Archive) buildIndex(path string, cfg searchConfig) (bleve.Index, error)
 
 	batch := idx.NewBatch()
 	batchCount := 0
-	doc := indexDoc{}
 
 	for urlIdx, entry := range a.Articles() {
-		doc.Title = entry.Title()
-		doc.Content = ""
+		doc := indexDoc{Title: entry.Title()}
 
 		if cfg.extract != nil {
-			data, err := entry.Content()
-			if err == nil && len(data) > 0 {
+			if data, err := entry.Content(); err == nil && len(data) > 0 {
 				doc.Content = cfg.extract(data)
 			}
 		}
@@ -195,7 +203,6 @@ func (a *Archive) buildIndex(path string, cfg searchConfig) (bleve.Index, error)
 		}
 	}
 
-	// Flush remaining
 	if batchCount > 0 {
 		if err := idx.Batch(batch); err != nil {
 			idx.Close()
@@ -206,7 +213,6 @@ func (a *Archive) buildIndex(path string, cfg searchConfig) (bleve.Index, error)
 	return idx, nil
 }
 
-// closeSearch closes the Bleve index if open.
 func (a *Archive) closeSearch() error {
 	a.search.mu.Lock()
 	defer a.search.mu.Unlock()

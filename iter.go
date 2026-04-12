@@ -6,7 +6,7 @@ import "iter"
 func (a *Archive) Entries() iter.Seq2[uint32, Entry] {
 	return func(yield func(uint32, Entry) bool) {
 		for idx := uint32(0); idx < a.r.articleCount; idx++ {
-			art, err := a.r.ArticleAtURLIdx(idx)
+			art, err := a.r.articleAtIdx(idx)
 			if err != nil {
 				continue
 			}
@@ -21,7 +21,7 @@ func (a *Archive) Entries() iter.Seq2[uint32, Entry] {
 func (a *Archive) Articles() iter.Seq2[uint32, Entry] {
 	return func(yield func(uint32, Entry) bool) {
 		for idx := uint32(0); idx < a.r.articleCount; idx++ {
-			art, err := a.r.ArticleAtURLIdx(idx)
+			art, err := a.r.articleAtIdx(idx)
 			if err != nil {
 				continue
 			}
@@ -39,23 +39,20 @@ func (a *Archive) Articles() iter.Seq2[uint32, Entry] {
 // EntriesByTitle returns an iterator over all entries in title-sorted order.
 func (a *Archive) EntriesByTitle() iter.Seq2[uint32, Entry] {
 	return func(yield func(uint32, Entry) bool) {
-		var count uint32
-		for pos := a.r.titlePtrPos; count < a.r.articleCount; pos += 4 {
+		for i := uint32(0); i < a.r.articleCount; i++ {
+			pos := a.r.titlePtrPos + uint64(i)*4
 			b, err := a.r.bytesRangeAt(pos, pos+4)
 			if err != nil {
-				count++
 				continue
 			}
 			idx := le32(b)
-			art, err := a.r.ArticleAtURLIdx(idx)
+			art, err := a.r.articleAtIdx(idx)
 			if err != nil {
-				count++
 				continue
 			}
 			if !yield(idx, Entry{article: art, archive: a}) {
 				return
 			}
-			count++
 		}
 	}
 }
@@ -63,17 +60,16 @@ func (a *Archive) EntriesByTitle() iter.Seq2[uint32, Entry] {
 // EntriesInNamespace returns an iterator over entries in the given namespace.
 func (a *Archive) EntriesInNamespace(ns byte) iter.Seq2[uint32, Entry] {
 	return func(yield func(uint32, Entry) bool) {
-		prefix := string(ns) + "/"
-		lo, err := a.lowerBound(prefix)
+		lo, err := a.lowerBound(string(ns) + "/")
 		if err != nil {
 			return
 		}
 		for idx := lo; idx < a.r.articleCount; idx++ {
-			art, err := a.r.ArticleAtURLIdx(idx)
+			art, err := a.r.articleAtIdx(idx)
 			if err != nil {
 				continue
 			}
-			if art.Namespace != ns {
+			if art.namespace != ns {
 				break
 			}
 			if !yield(idx, Entry{article: art, archive: a}) {
