@@ -115,23 +115,36 @@ func (a *Archive) MainEntry() (Entry, error) {
 }
 
 // SearchTitles searches for entries whose title starts with prefix, returning up to limit results.
-// Searches article namespaces only (A for v5, C for v6). Uses binary search on the title index.
+// Searches article namespaces only (A for v5, C for v6). Uses binary search on the title index
+// (v5) or the URL index (v6, which has no separate title list).
 func (a *Archive) SearchTitles(prefix string, limit int) ([]Entry, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
 
 	ns := a.articleNamespace()
+
+	// v6 ZIM files set titlePtrPos to 0xFFFFFFFFFFFFFFFF (no title list).
+	// Fall back to scanning the URL index within the article namespace.
+	if a.r.titlePtrPos == 0xFFFFFFFFFFFFFFFF {
+		return a.searchTitlesByURL(ns, prefix, limit)
+	}
+
+	return a.searchTitlesByTitleIdx(ns, prefix, limit)
+}
+
+// searchTitlesByTitleIdx uses the v5 title pointer list for prefix search.
+func (a *Archive) searchTitlesByTitleIdx(ns byte, prefix string, limit int) ([]Entry, error) {
 	fullPrefix := string(ns) + prefix
 
 	lo, hi := uint32(0), a.r.articleCount
 	for lo < hi {
 		mid := lo + (hi-lo)/2
-		ns, title, err := a.readTitleAtTitleIdx(mid)
+		mns, title, err := a.readTitleAtTitleIdx(mid)
 		if err != nil {
 			return nil, err
 		}
-		if string(ns)+title < fullPrefix {
+		if string(mns)+title < fullPrefix {
 			lo = mid + 1
 		} else {
 			hi = mid
@@ -139,13 +152,12 @@ func (a *Archive) SearchTitles(prefix string, limit int) ([]Entry, error) {
 	}
 
 	var results []Entry
-	articleNS := a.articleNamespace()
 	for i := lo; i < a.r.articleCount && len(results) < limit; i++ {
-		ns, title, err := a.readTitleAtTitleIdx(i)
+		mns, title, err := a.readTitleAtTitleIdx(i)
 		if err != nil {
 			continue
 		}
-		if ns != articleNS {
+		if mns != ns {
 			break
 		}
 		if len(title) < len(prefix) || title[:len(prefix)] != prefix {
@@ -160,6 +172,34 @@ func (a *Archive) SearchTitles(prefix string, limit int) ([]Entry, error) {
 			continue
 		}
 		results = append(results, Entry{article: art, archive: a})
+	}
+	return results, nil
+}
+
+// searchTitlesByURL scans the URL index for v6 ZIM files that lack a title pointer list.
+// Uses lowerBound to find the namespace start, then linear scans for title prefix matches.
+func (a *Archive) searchTitlesByURL(ns byte, prefix string, limit int) ([]Entry, error) {
+	lo, err := a.lowerBound(string(ns) + "/")
+	if err != nil {
+		return nil, err
+	}
+
+	var results []Entry
+	for idx := lo; idx < a.r.articleCount && len(results) < limit; idx++ {
+		art, err := a.r.articleAtIdx(idx)
+		if err != nil {
+			continue
+		}
+		if art.namespace != ns {
+			break
+		}
+		title := art.title
+		if title == "" {
+			title = art.url
+		}
+		if len(title) >= len(prefix) && title[:len(prefix)] == prefix {
+			results = append(results, Entry{article: art, archive: a})
+		}
 	}
 	return results, nil
 }

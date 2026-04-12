@@ -54,7 +54,7 @@ func TestContent(t *testing.T) {
 	if !e.IsRedirect() {
 		data, err := e.Content()
 		if err != nil {
-			t.Skipf("Content: %v (test.zim uses old XZ compression)", err)
+			t.Fatalf("Content: %v", err)
 		}
 		if len(data) == 0 {
 			t.Error("empty content")
@@ -108,7 +108,7 @@ func BenchmarkContentCached(b *testing.B) {
 	}
 	data, err := e.Content()
 	if err != nil {
-		b.Skipf("Content: %v (test.zim uses old XZ compression)", err)
+		b.Fatalf("Content: %v", err)
 	}
 	b.SetBytes(int64(len(data)))
 	b.ResetTimer()
@@ -124,7 +124,7 @@ func BenchmarkContent(b *testing.B) {
 	}
 	data, err := e.Content()
 	if err != nil {
-		b.Skipf("Content: %v (test.zim uses old XZ compression)", err)
+		b.Fatalf("Content: %v", err)
 	}
 	b.SetBytes(int64(len(data)))
 	b.ResetTimer()

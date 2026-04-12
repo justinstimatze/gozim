@@ -39,8 +39,8 @@ func TestArchiveVersion(t *testing.T) {
 	}
 	defer a.Close()
 
-	if a.VersionMajor() != 5 {
-		t.Errorf("expected version 5, got %d", a.VersionMajor())
+	if a.VersionMajor() != 6 {
+		t.Errorf("expected version 6, got %d", a.VersionMajor())
 	}
 }
 
@@ -85,7 +85,7 @@ func TestGetEntryByPath(t *testing.T) {
 	}
 	defer a.Close()
 
-	e, err := a.GetEntryByPath("Dracula:Capitol_1.html")
+	e, err := a.GetEntryByPath("NBA")
 	if err != nil {
 		t.Fatalf("GetEntryByPath: %v", err)
 	}
@@ -109,13 +109,13 @@ func TestGetEntryByFullPath(t *testing.T) {
 	}
 	defer a.Close()
 
-	e, err := a.GetEntryByFullPath("A/Dracula:Capitol_1.html")
+	e, err := a.GetEntryByFullPath("C/NBA")
 	if err != nil {
 		t.Fatalf("GetEntryByFullPath: %v", err)
 	}
 
-	if e.Path() != "Dracula:Capitol_1.html" {
-		t.Errorf("expected path Dracula:Capitol_1.html, got %s", e.Path())
+	if e.Path() != "NBA" {
+		t.Errorf("expected path NBA, got %s", e.Path())
 	}
 }
 
@@ -154,14 +154,14 @@ func TestEntryContent(t *testing.T) {
 	}
 	defer a.Close()
 
-	e, err := a.GetEntryByPath("Dracula:Capitol_1.html")
+	e, err := a.GetEntryByPath("NBA")
 	if err != nil {
 		t.Fatalf("GetEntryByPath: %v", err)
 	}
 
 	data, err := e.Content()
 	if err != nil {
-		t.Skipf("Content: %v (test.zim uses old XZ compression)", err)
+		t.Fatalf("Content: %v", err)
 	}
 	if len(data) == 0 {
 		t.Error("content is empty")
@@ -234,7 +234,7 @@ func TestSearchTitles(t *testing.T) {
 	}
 	defer a.Close()
 
-	results, err := a.SearchTitles("Dracula", 10)
+	results, err := a.SearchTitles("NBA", 10)
 	if err != nil {
 		t.Fatalf("SearchTitles: %v", err)
 	}
@@ -330,13 +330,13 @@ func TestIterEntriesInNamespace(t *testing.T) {
 	defer a.Close()
 
 	count := 0
-	for _, e := range a.EntriesInNamespace('A') {
-		if e.Namespace() != 'A' {
-			t.Errorf("wrong namespace: got %c, want A", e.Namespace())
+	for _, e := range a.EntriesInNamespace('C') {
+		if e.Namespace() != 'C' {
+			t.Errorf("wrong namespace: got %c, want C", e.Namespace())
 		}
 		count++
 	}
-	t.Logf("Iterated %d entries in namespace A", count)
+	t.Logf("Iterated %d entries in namespace C", count)
 }
 
 func TestIterEarlyBreak(t *testing.T) {
@@ -399,7 +399,7 @@ func TestSearch(t *testing.T) {
 
 	idxPath := t.TempDir() + "/test.bleve"
 
-	results, err := a.Search("Dracula", 5, WithIndexPath(idxPath))
+	results, err := a.Search("NBA", 5, WithIndexPath(idxPath))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestSearchPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	_, err = a1.Search("Dracula", 1, WithIndexPath(idxPath))
+	_, err = a1.Search("NBA", 1, WithIndexPath(idxPath))
 	if err != nil {
 		t.Fatalf("Search (build): %v", err)
 	}
@@ -432,7 +432,7 @@ func TestSearchPersistence(t *testing.T) {
 	}
 	defer a2.Close()
 
-	results, err := a2.Search("Dracula", 5, WithIndexPath(idxPath))
+	results, err := a2.Search("NBA", 5, WithIndexPath(idxPath))
 	if err != nil {
 		t.Fatalf("Search (persisted): %v", err)
 	}
@@ -451,13 +451,13 @@ func TestSearchWithOffset(t *testing.T) {
 
 	idxPath := t.TempDir() + "/offset.bleve"
 
-	all, err := a.Search("Dracula", 10, WithIndexPath(idxPath))
+	all, err := a.Search("NBA", 10, WithIndexPath(idxPath))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 
 	if len(all) > 1 {
-		page2, err := a.Search("Dracula", 10, WithIndexPath(idxPath), WithOffset(1))
+		page2, err := a.Search("NBA", 10, WithIndexPath(idxPath), WithOffset(1))
 		if err != nil {
 			t.Fatalf("Search with offset: %v", err)
 		}
@@ -515,7 +515,7 @@ func TestRedirectTargetOnNonRedirect(t *testing.T) {
 	}
 	defer a.Close()
 
-	e, err := a.GetEntryByPath("Dracula:Capitol_1.html")
+	e, err := a.GetEntryByPath("NBA")
 	if err != nil {
 		t.Fatalf("GetEntryByPath: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestBuildIndex(t *testing.T) {
 	}
 
 	// Verify we can search after explicit build
-	results, err := a.Search("Dracula", 5)
+	results, err := a.Search("NBA", 5)
 	if err != nil {
 		t.Fatalf("Search after BuildIndex: %v", err)
 	}
@@ -603,7 +603,7 @@ func TestSearchTitlesLimit(t *testing.T) {
 	}
 	defer a.Close()
 
-	results, err := a.SearchTitles("Dracula", 2)
+	results, err := a.SearchTitles("NBA", 2)
 	if err != nil {
 		t.Fatalf("SearchTitles: %v", err)
 	}
@@ -619,7 +619,7 @@ func TestSearchTitlesZeroLimit(t *testing.T) {
 	}
 	defer a.Close()
 
-	results, err := a.SearchTitles("Dracula", 0)
+	results, err := a.SearchTitles("NBA", 0)
 	if err != nil {
 		t.Fatalf("SearchTitles: %v", err)
 	}
@@ -635,13 +635,13 @@ func TestWithBlobCacheSize(t *testing.T) {
 	}
 	defer a.Close()
 
-	e, err := a.GetEntryByPath("Dracula:Capitol_1.html")
+	e, err := a.GetEntryByPath("NBA")
 	if err != nil {
 		t.Fatalf("GetEntryByPath: %v", err)
 	}
 	data, err := e.Content()
 	if err != nil {
-		t.Skipf("Content: %v (test.zim uses old XZ compression)", err)
+		t.Fatalf("Content: %v", err)
 	}
 	if len(data) == 0 {
 		t.Error("empty content with small cache")
@@ -662,18 +662,18 @@ func TestConcurrentOpen(t *testing.T) {
 	defer a2.Close()
 
 	// Both should work independently
-	e1, err := a1.GetEntryByPath("Dracula:Capitol_1.html")
+	e1, err := a1.GetEntryByPath("NBA")
 	if err != nil {
 		t.Fatalf("a1 GetEntryByPath: %v", err)
 	}
-	e2, err := a2.GetEntryByPath("Dracula:Capitol_1.html")
+	e2, err := a2.GetEntryByPath("NBA")
 	if err != nil {
 		t.Fatalf("a2 GetEntryByPath: %v", err)
 	}
 
 	d1, err := e1.Content()
 	if err != nil {
-		t.Skipf("Content: %v (test.zim uses old XZ compression)", err)
+		t.Fatalf("Content: %v", err)
 	}
 	d2, _ := e2.Content()
 	if len(d1) != len(d2) {
