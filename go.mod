@@ -7,7 +7,7 @@ require (
 	github.com/blevesearch/bleve/v2 v2.4.4
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/klauspost/compress v1.18.0
-	github.com/ulikunitz/xz v0.5.12
+	github.com/ulikunitz/xz v0.5.15
 )
 
 require (
@@ -37,6 +37,6 @@ require (
 	github.com/json-iterator/go v0.0.0-20171115153421-f7279a603ede // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	go.etcd.io/bbolt v1.3.7 // indirect
-	golang.org/x/net v0.39.0 // indirect
-	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/net v0.45.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
 )

@@ -12,5 +12,12 @@ _testmain.go
 *.bleve/
 cmd/gozimhttpd/gozimhttpd
 cmd/gozimindex/gozimindex
+
+# Development tools
+.defn/
 .defn-server/
 .defn-server.pid
+.codex/
+.mcp.json
+.plancheck-debug.json
+CLAUDE.md
