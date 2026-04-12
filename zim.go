@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	lru "github.com/hashicorp/golang-lru/v2"
+	"golang.org/x/sync/singleflight"
 )
 
 const zimMagic = 72173914
@@ -31,6 +33,8 @@ type zimReader struct {
 	mimeTypeList  []string
 	mmap          []byte
 	blobCache     *lru.Cache[uint32, []byte]
+	decompGroup   singleflight.Group // deduplicate concurrent decompressions of the same cluster
+	closed        atomic.Bool
 }
 
 func newReader(path string, cacheSize int, mmap bool) (*zimReader, error) {
@@ -265,6 +269,7 @@ func (z *zimReader) readTitleAt(urlIdx uint32) (namespace byte, title string, er
 }
 
 func (z *zimReader) Close() error {
+	z.closed.Store(true)
 	var mmapErr error
 	if len(z.mmap) > 0 {
 		mmapErr = syscall.Munmap(z.mmap)
@@ -283,7 +288,12 @@ func (z *zimReader) String() string {
 		fi.Size(), z.articleCount, z.clusterCount, z.versionMajor, z.versionMinor)
 }
 
+var errClosed = errors.New("archive is closed")
+
 func (z *zimReader) bytesRangeAt(start, end uint64) ([]byte, error) {
+	if z.closed.Load() {
+		return nil, errClosed
+	}
 	if len(z.mmap) > 0 {
 		if end > uint64(len(z.mmap)) {
 			return nil, fmt.Errorf("read beyond file: offset %d > size %d", end, len(z.mmap))

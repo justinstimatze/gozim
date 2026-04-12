@@ -1,6 +1,9 @@
 package zim
 
-import "iter"
+import (
+	"iter"
+	"sync/atomic"
+)
 
 // Entries returns an iterator over all entries in URL index order.
 func (a *Archive) Entries() iter.Seq2[uint32, Entry] {
@@ -55,6 +58,25 @@ func (a *Archive) EntriesByTitle() iter.Seq2[uint32, Entry] {
 			}
 		}
 	}
+}
+
+// EntriesWithErrors returns an iterator like Entries but tracks skipped entries.
+// After iteration completes, call errs.Load() to get the count of entries that
+// failed to read and were silently skipped.
+func (a *Archive) EntriesWithErrors() (iter.Seq2[uint32, Entry], *atomic.Int64) {
+	errs := &atomic.Int64{}
+	return func(yield func(uint32, Entry) bool) {
+		for idx := uint32(0); idx < a.r.articleCount; idx++ {
+			art, err := a.r.articleAtIdx(idx)
+			if err != nil {
+				errs.Add(1)
+				continue
+			}
+			if !yield(idx, Entry{article: art, archive: a}) {
+				return
+			}
+		}
+	}, errs
 }
 
 // EntriesInNamespace returns an iterator over entries in the given namespace.

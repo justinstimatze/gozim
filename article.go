@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 )
 
 const (
@@ -89,30 +90,41 @@ func (a *article) data() ([]byte, error) {
 func (a *article) readCompressed(start, end uint64, compression byte, extended bool) ([]byte, error) {
 	blob, ok := a.z.blobCache.Get(a.cluster)
 	if !ok {
-		b, err := a.z.bytesRangeAt(start+1, end+1)
+		// Use singleflight to deduplicate concurrent decompressions of the same cluster.
+		key := strconv.FormatUint(uint64(a.cluster), 10)
+		v, err, _ := a.z.decompGroup.Do(key, func() (interface{}, error) {
+			// Double-check cache after acquiring the flight.
+			if cached, ok := a.z.blobCache.Get(a.cluster); ok {
+				return cached, nil
+			}
+			b, err := a.z.bytesRangeAt(start+1, end+1)
+			if err != nil {
+				return nil, err
+			}
+			var dec io.ReadCloser
+			switch compression {
+			case 5:
+				dec, err = NewZstdReader(bytes.NewBuffer(b))
+			case 4:
+				dec, err = NewXZReader(bytes.NewBuffer(b))
+			}
+			if err != nil {
+				return nil, err
+			}
+			defer dec.Close()
+			raw, err := io.ReadAll(io.LimitReader(dec, maxDecompressedSize))
+			if err != nil {
+				return nil, err
+			}
+			result := make([]byte, len(raw))
+			copy(result, raw)
+			a.z.blobCache.Add(a.cluster, result)
+			return result, nil
+		})
 		if err != nil {
 			return nil, err
 		}
-
-		var dec io.ReadCloser
-		switch compression {
-		case 5:
-			dec, err = NewZstdReader(bytes.NewBuffer(b))
-		case 4:
-			dec, err = NewXZReader(bytes.NewBuffer(b))
-		}
-		if err != nil {
-			return nil, err
-		}
-		defer dec.Close()
-
-		raw, err := io.ReadAll(io.LimitReader(dec, maxDecompressedSize))
-		if err != nil {
-			return nil, err
-		}
-		blob = make([]byte, len(raw))
-		copy(blob, raw)
-		a.z.blobCache.Add(a.cluster, blob)
+		blob = v.([]byte)
 	}
 
 	bs, be, err := safeBlobOffsets(blob, a.blob, extended)
