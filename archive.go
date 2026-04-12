@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 )
 
 const defaultBlobCacheSize = 5
@@ -195,10 +196,13 @@ func (a *Archive) ValidateChecksum() (bool, error) {
 	if len(a.r.mmap) > 0 {
 		h.Write(a.r.mmap[:a.r.checksumPos])
 	} else {
-		if _, err := a.r.f.Seek(0, 0); err != nil {
-			return false, err
+		// Open a separate file descriptor for streaming to avoid race with ReadAt.
+		f, err := os.Open(a.r.f.Name())
+		if err != nil {
+			return false, fmt.Errorf("can't reopen for checksum: %w", err)
 		}
-		if _, err := io.CopyN(h, a.r.f, int64(a.r.checksumPos)); err != nil {
+		defer f.Close()
+		if _, err := io.CopyN(h, f, int64(a.r.checksumPos)); err != nil {
 			return false, fmt.Errorf("can't compute checksum: %w", err)
 		}
 	}

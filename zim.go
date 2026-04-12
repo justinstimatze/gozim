@@ -181,9 +181,23 @@ func (z *zimReader) fillArticle(a *article, offset uint64) error {
 
 // readURLTitle reads null-terminated url and title strings starting at pos.
 func (z *zimReader) readURLTitle(a *article, pos uint64) error {
-	b, err := z.bytesRangeAt(pos, pos+2048)
+	// Try 2048 bytes; fall back to whatever remains if near EOF.
+	end := pos + 2048
+	b, err := z.bytesRangeAt(pos, end)
 	if err != nil {
-		return nil // near EOF, silently skip
+		// Retry with file size as end bound
+		fi, statErr := z.f.Stat()
+		if statErr != nil {
+			return nil
+		}
+		end = uint64(fi.Size())
+		if end <= pos {
+			return nil
+		}
+		b, err = z.bytesRangeAt(pos, end)
+		if err != nil {
+			return nil
+		}
 	}
 
 	// url\0title\0

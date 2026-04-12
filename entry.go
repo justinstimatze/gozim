@@ -1,6 +1,9 @@
 package zim
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Entry represents a single entry in a ZIM archive.
 type Entry struct {
@@ -23,7 +26,14 @@ func (e Entry) Title() string {
 func (e Entry) FullPath() string { return e.article.fullURL() }
 
 // Content returns the decompressed content of this entry.
-func (e Entry) Content() ([]byte, error) { return e.article.data() }
+// Returns an error if the entry is a redirect (use RedirectTarget or ResolveRedirect instead).
+func (e Entry) Content() ([]byte, error) {
+	data, err := e.article.data()
+	if errors.Is(err, errRedirectEntry) || errors.Is(err, errDeletedEntry) {
+		return nil, err
+	}
+	return data, err
+}
 
 // MimeType returns the MIME type string for this entry.
 func (e Entry) MimeType() string { return e.article.mimeType() }
@@ -53,6 +63,23 @@ func (e Entry) RedirectTarget() (Entry, error) {
 		return Entry{}, fmt.Errorf("not a redirect: %w", err)
 	}
 	return e.archive.GetEntryByIndex(idx)
+}
+
+// ResolveRedirect follows redirect chains up to maxDepth levels.
+// Returns the final non-redirect entry, or an error if maxDepth is exceeded.
+func (e Entry) ResolveRedirect(maxDepth int) (Entry, error) {
+	cur := e
+	for i := 0; i < maxDepth; i++ {
+		if !cur.IsRedirect() {
+			return cur, nil
+		}
+		next, err := cur.RedirectTarget()
+		if err != nil {
+			return Entry{}, err
+		}
+		cur = next
+	}
+	return Entry{}, fmt.Errorf("redirect chain exceeds max depth %d", maxDepth)
 }
 
 // EntryType returns the raw entry type value.

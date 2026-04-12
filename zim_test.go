@@ -76,6 +76,48 @@ func TestListEntries(t *testing.T) {
 	t.Logf("%d entries (EntryCount=%d)", count, A.EntryCount())
 }
 
+func BenchmarkGetEntryByPath(b *testing.B) {
+	for b.Loop() {
+		A.GetEntryByPath("Dracula:Capitol_1.html")
+	}
+}
+
+func BenchmarkSearchTitles(b *testing.B) {
+	for b.Loop() {
+		A.SearchTitles("Dracula", 10)
+	}
+}
+
+func BenchmarkReadTitleAt(b *testing.B) {
+	for b.Loop() {
+		A.r.readTitleAt(100)
+	}
+}
+
+func BenchmarkIterArticles(b *testing.B) {
+	for b.Loop() {
+		for range A.Articles() {
+		}
+	}
+}
+
+func BenchmarkContentCached(b *testing.B) {
+	e, err := A.GetEntryByIndex(5)
+	if err != nil {
+		b.Fatal(err)
+	}
+	// Prime cache
+	data, err := e.Content()
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.SetBytes(int64(len(data)))
+	b.ResetTimer()
+	for b.Loop() {
+		e.Content()
+	}
+}
+
 func BenchmarkContent(b *testing.B) {
 	e, err := A.GetEntryByIndex(5)
 	if err != nil {
