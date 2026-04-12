@@ -144,7 +144,7 @@ func BenchmarkArticleBytes(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		a.Data()
-		bcache.Purge() // prevent memiozing value
+		Z.blobCache.Purge() // prevent memoizing value
 	}
 
 }

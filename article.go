@@ -6,22 +6,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
-
-	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
 	RedirectEntry   uint16 = 0xffff
-	LinkTargetEntry        = 0xfffe
-	DeletedEntry           = 0xfffd
+	LinkTargetEntry uint16 = 0xfffe
+	DeletedEntry    uint16 = 0xfffd
 )
-
-var articlePool sync.Pool
-
-// the recent uncompressed blobs, mainly useful while indexing and asking
-// for the same blob again and again
-var bcache *lru.Cache[uint32, []byte]
 
 type Article struct {
 	// EntryType is a RedirectEntry/LinkTargetEntry/DeletedEntry or an idx
@@ -36,7 +27,7 @@ type Article struct {
 	z         *ZimReader
 }
 
-// convenient method to return the Article at URL index idx
+// ArticleAtURLIdx returns the Article at URL index idx.
 func (z *ZimReader) ArticleAtURLIdx(idx uint32) (*Article, error) {
 	o, err := z.OffsetAtURLIdx(idx)
 	if err != nil {
@@ -45,7 +36,7 @@ func (z *ZimReader) ArticleAtURLIdx(idx uint32) (*Article, error) {
 	return z.ArticleAt(o)
 }
 
-// return the article main page if it exists
+// MainPage returns the article designated as the main page, if any.
 func (z *ZimReader) MainPage() (*Article, error) {
 	if z.mainPage == 0xffffffff {
 		return nil, nil
@@ -53,27 +44,26 @@ func (z *ZimReader) MainPage() (*Article, error) {
 	return z.ArticleAtURLIdx(z.mainPage)
 }
 
-// get the article (Directory) pointed by the offset found in URLpos or Titlepos
+// ArticleAt returns the Article at the given file offset using the article pool.
 func (z *ZimReader) ArticleAt(offset uint64) (*Article, error) {
-	a := articlePool.Get().(*Article)
+	a := z.articlePool.Get().(*Article)
 	err := z.FillArticleAt(a, offset)
 	return a, err
 }
 
-// Fill an article with datas found at offset
+// FillArticleAt fills an Article with data found at the given offset.
 func (z *ZimReader) FillArticleAt(a *Article, offset uint64) error {
 	a.z = z
 	a.URLPtr = offset
 
-	mimeIdx, err := readInt16(z.bytesRangeAt(offset, offset+2))
+	b, err := z.bytesRangeAt(offset, offset+2)
 	if err != nil {
 		return fmt.Errorf("can't read article %w", err)
 	}
+	mimeIdx := le16(b)
 	a.EntryType = mimeIdx
 
-	// Linktarget or Target Entry
 	if mimeIdx == LinkTargetEntry || mimeIdx == DeletedEntry {
-		// TODO
 		return nil
 	}
 
@@ -83,18 +73,20 @@ func (z *ZimReader) FillArticleAt(a *Article, offset uint64) error {
 	}
 	a.Namespace = s[0]
 
-	a.cluster, err = readInt32(z.bytesRangeAt(offset+8, offset+8+4))
+	b, err = z.bytesRangeAt(offset+8, offset+12)
 	if err != nil {
 		return err
 	}
-	a.blob, err = readInt32(z.bytesRangeAt(offset+12, offset+12+4))
+	a.cluster = le32(b)
+
+	b, err = z.bytesRangeAt(offset+12, offset+16)
 	if err != nil {
 		return err
 	}
+	a.blob = le32(b)
 
 	// Redirect
 	if mimeIdx == RedirectEntry {
-		// assume the url + title won't be longer than 2k
 		b, err := z.bytesRangeAt(offset+12, offset+12+2048)
 		if err != nil {
 			return nil
@@ -114,7 +106,7 @@ func (z *ZimReader) FillArticleAt(a *Article, offset uint64) error {
 		return err
 	}
 
-	b, err := z.bytesRangeAt(offset+16, offset+16+2048)
+	b, err = z.bytesRangeAt(offset+16, offset+16+2048)
 	if err != nil {
 		return nil
 	}
@@ -131,17 +123,14 @@ func (z *ZimReader) FillArticleAt(a *Article, offset uint64) error {
 		return err
 	}
 	title = strings.TrimRight(string(title), "\x00")
-	// This is a trick to force a copy and avoid retain of the full buffer
-	// mainly for indexing title reasons
 	if len(title) != 0 {
 		a.Title = title[0:1] + title[1:]
 	}
 	return nil
 }
 
-// return the uncompressed data associated with this article
+// Data returns the uncompressed data associated with this article.
 func (a *Article) Data() ([]byte, error) {
-	// ensure we have data to read
 	if a.EntryType == RedirectEntry || a.EntryType == LinkTargetEntry || a.EntryType == DeletedEntry {
 		return nil, nil
 	}
@@ -153,88 +142,110 @@ func (a *Article) Data() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	compression := uint8(s[0])
+	compression := uint8(s[0]) & 0x0f // low 4 bits = compression type
+	extended := s[0]&0x10 != 0         // bit 4 = extended (8-byte) blob offsets
 
-	// blob starts at offset, blob ends at offset
-	var bs, be uint32
-
-	// LZMA: 4, Zstandard: 5
-	if compression == 4 || compression == 5 {
-		var blob []byte
-		var ok bool
-		var dec io.ReadCloser
-		if blob, ok = bcache.Get(a.cluster); !ok {
-			b, err := a.z.bytesRangeAt(start+1, end+1)
-			if err != nil {
-				return nil, err
-			}
-			bbuf := bytes.NewBuffer(b)
-			switch compression {
-			case 5:
-				dec, err = NewZstdReader(bbuf)
-
-			case 4:
-				dec, err = NewXZReader(bbuf)
-			}
-			if err != nil {
-				return nil, err
-			}
-			defer dec.Close()
-			// the decoded chunk are around 1MB
-			b, err = io.ReadAll(dec)
-			if err != nil {
-				return nil, err
-			}
-			blob = make([]byte, len(b))
-			copy(blob, b)
-			// TODO: 2 requests for the same blob could occure at the same time
-			bcache.Add(a.cluster, blob)
-		}
-
-		bs, err = readInt32(blob[a.blob*4:a.blob*4+4], nil)
-		if err != nil {
-			return nil, err
-		}
-		be, err = readInt32(blob[a.blob*4+4:a.blob*4+4+4], nil)
-		if err != nil {
-			return nil, err
-		}
-
-		// avoid retaining all the chunk
-		c := make([]byte, be-bs)
-		copy(c, blob[bs:be])
-		return c, nil
-
-	} else if compression == 0 || compression == 1 {
-		// uncompresssed
-		startPos := start + 1
-		blobOffset := uint64(a.blob * 4)
-
-		bs, err := readInt32(a.z.bytesRangeAt(startPos+blobOffset, startPos+blobOffset+4))
-		if err != nil {
-			return nil, err
-		}
-
-		be, err := readInt32(a.z.bytesRangeAt(startPos+blobOffset+4, startPos+blobOffset+4+4))
-		if err != nil {
-			return nil, err
-		}
-
-		return a.z.bytesRangeAt(startPos+uint64(bs), startPos+uint64(be))
+	switch {
+	case compression == 4 || compression == 5:
+		return a.readCompressed(start, end, compression, extended)
+	case compression == 0 || compression == 1:
+		return a.readUncompressed(start, extended)
+	default:
+		return nil, fmt.Errorf("unhandled compression type %d", compression)
 	}
-
-	return nil, errors.New("Unhandled compression")
 }
 
+func (a *Article) readCompressed(start, end uint64, compression uint8, extended bool) ([]byte, error) {
+	blob, ok := a.z.blobCache.Get(a.cluster)
+	if !ok {
+		b, err := a.z.bytesRangeAt(start+1, end+1)
+		if err != nil {
+			return nil, err
+		}
+		bbuf := bytes.NewBuffer(b)
+
+		var dec io.ReadCloser
+		switch compression {
+		case 5:
+			dec, err = NewZstdReader(bbuf)
+		case 4:
+			dec, err = NewXZReader(bbuf)
+		}
+		if err != nil {
+			return nil, err
+		}
+		defer dec.Close()
+
+		b, err = io.ReadAll(dec)
+		if err != nil {
+			return nil, err
+		}
+		blob = make([]byte, len(b))
+		copy(blob, b)
+		a.z.blobCache.Add(a.cluster, blob)
+	}
+
+	bs, be := blobOffsets(blob, a.blob, extended)
+	c := make([]byte, be-bs)
+	copy(c, blob[bs:be])
+	return c, nil
+}
+
+func (a *Article) readUncompressed(start uint64, extended bool) ([]byte, error) {
+	startPos := start + 1
+
+	if extended {
+		blobOffset := uint64(a.blob) * 8
+		b, err := a.z.bytesRangeAt(startPos+blobOffset, startPos+blobOffset+8)
+		if err != nil {
+			return nil, err
+		}
+		bs := le64(b)
+		b, err = a.z.bytesRangeAt(startPos+blobOffset+8, startPos+blobOffset+16)
+		if err != nil {
+			return nil, err
+		}
+		be := le64(b)
+		return a.z.bytesRangeAt(startPos+bs, startPos+be)
+	}
+
+	blobOffset := uint64(a.blob) * 4
+	b, err := a.z.bytesRangeAt(startPos+blobOffset, startPos+blobOffset+4)
+	if err != nil {
+		return nil, err
+	}
+	bs := uint64(le32(b))
+	b, err = a.z.bytesRangeAt(startPos+blobOffset+4, startPos+blobOffset+8)
+	if err != nil {
+		return nil, err
+	}
+	be := uint64(le32(b))
+	return a.z.bytesRangeAt(startPos+bs, startPos+be)
+}
+
+// blobOffsets extracts the start and end offsets for blob at blobIdx from decompressed cluster data.
+func blobOffsets(data []byte, blobIdx uint32, extended bool) (start, end uint64) {
+	if extended {
+		off := uint64(blobIdx) * 8
+		start = le64(data[off : off+8])
+		end = le64(data[off+8 : off+16])
+	} else {
+		off := uint64(blobIdx) * 4
+		start = uint64(le32(data[off : off+4]))
+		end = uint64(le32(data[off+4 : off+8]))
+	}
+	return
+}
+
+// MimeType returns the MIME type string for this article.
 func (a *Article) MimeType() string {
 	if a.EntryType == RedirectEntry || a.EntryType == LinkTargetEntry || a.EntryType == DeletedEntry {
 		return ""
 	}
-
 	return a.z.mimeTypeList[a.EntryType]
 }
 
-// return the url prefixed by the namespace
+// FullURL returns the URL prefixed by the namespace (e.g., "A/page").
 func (a *Article) FullURL() string {
 	return string(a.Namespace) + "/" + a.url
 }
@@ -244,12 +255,10 @@ func (a *Article) String() string {
 		a.EntryType, a.FullURL(), a.Title, a.cluster, a.blob)
 }
 
-// RedirectIndex return the redirect index of RedirectEntry type article
-// return an err if not a redirect entry
+// RedirectIndex returns the redirect target index for RedirectEntry type articles.
 func (a *Article) RedirectIndex() (uint32, error) {
 	if a.EntryType != RedirectEntry {
-		return 0, errors.New("Not a RedirectEntry")
+		return 0, errors.New("not a redirect entry")
 	}
-	// We use the cluster to save the redirect index position for RedirectEntry type
 	return a.cluster, nil
 }
