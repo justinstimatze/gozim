@@ -1,6 +1,7 @@
 package zim
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -16,7 +17,8 @@ type SearchResult struct {
 }
 
 type searchConfig struct {
-	indexPath  string
+	ctx       context.Context
+	indexPath string
 	offset    int
 	extract   func([]byte) string
 	analyzer  string
@@ -50,6 +52,11 @@ func WithAnalyzer(name string) SearchOption {
 // WithBatchSize sets the number of documents per Bleve batch during index building (default 1000).
 func WithBatchSize(n int) SearchOption {
 	return func(c *searchConfig) { c.batchSize = n }
+}
+
+// WithContext sets a context for cancellation of long-running index builds.
+func WithContext(ctx context.Context) SearchOption {
+	return func(c *searchConfig) { c.ctx = ctx }
 }
 
 type searchState struct {
@@ -181,7 +188,18 @@ func (a *Archive) buildIndex(path string, cfg searchConfig) (bleve.Index, error)
 	batch := idx.NewBatch()
 	batchCount := 0
 
+	ctx := cfg.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	for urlIdx, entry := range a.Articles() {
+		if err := ctx.Err(); err != nil {
+			idx.Close()
+			os.RemoveAll(path) // clean up partial index
+			return nil, fmt.Errorf("index build cancelled: %w", err)
+		}
+
 		doc := indexDoc{Title: entry.Title()}
 
 		if cfg.extract != nil {

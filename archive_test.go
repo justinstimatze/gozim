@@ -1,6 +1,7 @@
 package zim
 
 import (
+	"context"
 	"testing"
 )
 
@@ -463,6 +464,188 @@ func TestSearchWithOffset(t *testing.T) {
 		if len(page2) != len(all)-1 {
 			t.Errorf("expected %d results with offset 1, got %d", len(all)-1, len(page2))
 		}
+	}
+}
+
+func TestOpenNonexistent(t *testing.T) {
+	_, err := Open("nonexistent.zim")
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
+
+func TestGetEntryByPathNotFound(t *testing.T) {
+	a, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	_, err = a.GetEntryByPath("THIS_PAGE_DOES_NOT_EXIST.html")
+	if err == nil {
+		t.Error("expected error for nonexistent path")
+	}
+}
+
+func TestRedirectTarget(t *testing.T) {
+	a, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	// Find a redirect entry
+	for _, e := range a.Entries() {
+		if e.IsRedirect() {
+			target, err := e.RedirectTarget()
+			if err != nil {
+				t.Fatalf("RedirectTarget: %v", err)
+			}
+			t.Logf("Redirect: %s → %s", e.FullPath(), target.FullPath())
+			return
+		}
+	}
+	t.Log("No redirects found in test.zim (ok for small test files)")
+}
+
+func TestRedirectTargetOnNonRedirect(t *testing.T) {
+	a, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	e, err := a.GetEntryByPath("Dracula:Capitol_1.html")
+	if err != nil {
+		t.Fatalf("GetEntryByPath: %v", err)
+	}
+
+	_, err = e.RedirectTarget()
+	if err == nil {
+		t.Error("expected error calling RedirectTarget on non-redirect")
+	}
+}
+
+func TestBlobOffsets(t *testing.T) {
+	// Test the blobOffsets helper with synthetic data
+	data := make([]byte, 16)
+	data[0] = 0x10 // blob 0 starts at 16
+	data[4] = 0x20 // blob 0 ends at 32 (blob 1 starts at 32)
+	data[8] = 0x30 // blob 1 ends at 48
+
+	bs, be := blobOffsets(data, 0, false)
+	if bs != 16 || be != 32 {
+		t.Errorf("blob 0: got [%d, %d], want [16, 32]", bs, be)
+	}
+
+	bs, be = blobOffsets(data, 1, false)
+	if bs != 32 || be != 48 {
+		t.Errorf("blob 1: got [%d, %d], want [32, 48]", bs, be)
+	}
+}
+
+func TestBlobOffsetsExtended(t *testing.T) {
+	data := make([]byte, 32)
+	// 8-byte offsets: blob 0 = [16, 32]
+	data[0] = 0x10 // le64 = 16
+	data[8] = 0x20 // le64 = 32
+	data[16] = 0x30
+
+	bs, be := blobOffsets(data, 0, true)
+	if bs != 16 || be != 32 {
+		t.Errorf("extended blob 0: got [%d, %d], want [16, 32]", bs, be)
+	}
+}
+
+func TestBuildIndex(t *testing.T) {
+	a, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	idxPath := t.TempDir() + "/build.bleve"
+	if err := a.BuildIndex(WithIndexPath(idxPath)); err != nil {
+		t.Fatalf("BuildIndex: %v", err)
+	}
+
+	// Verify we can search after explicit build
+	results, err := a.Search("Dracula", 5)
+	if err != nil {
+		t.Fatalf("Search after BuildIndex: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("no results after BuildIndex")
+	}
+}
+
+func TestBuildIndexWithContextCancel(t *testing.T) {
+	a, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	idxPath := t.TempDir() + "/cancelled.bleve"
+	err = a.BuildIndex(WithIndexPath(idxPath), WithContext(ctx))
+	if err == nil {
+		t.Error("expected error from cancelled context")
+	}
+}
+
+func TestSearchTitlesLimit(t *testing.T) {
+	a, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	results, err := a.SearchTitles("Dracula", 2)
+	if err != nil {
+		t.Fatalf("SearchTitles: %v", err)
+	}
+	if len(results) > 2 {
+		t.Errorf("expected at most 2, got %d", len(results))
+	}
+}
+
+func TestSearchTitlesZeroLimit(t *testing.T) {
+	a, err := Open("test.zim")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	results, err := a.SearchTitles("Dracula", 0)
+	if err != nil {
+		t.Fatalf("SearchTitles: %v", err)
+	}
+	if results != nil {
+		t.Errorf("expected nil for limit 0, got %d results", len(results))
+	}
+}
+
+func TestWithBlobCacheSize(t *testing.T) {
+	a, err := Open("test.zim", WithBlobCacheSize(2))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	// Should still work with a smaller cache
+	e, err := a.GetEntryByPath("Dracula:Capitol_1.html")
+	if err != nil {
+		t.Fatalf("GetEntryByPath: %v", err)
+	}
+	data, err := e.Content()
+	if err != nil {
+		t.Fatalf("Content: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("empty content with small cache")
 	}
 }
 
