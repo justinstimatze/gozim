@@ -106,7 +106,7 @@ func (a *article) readCompressed(start, end uint64, compression byte, extended b
 			case 5:
 				dec, err = NewZstdReader(bytes.NewBuffer(b))
 			case 4:
-				dec, err = NewXZReader(bytes.NewBuffer(b))
+				return nil, fmt.Errorf("cluster uses LZMA/XZ compression (type 4) which is not supported; this ZIM file was created before ~2020 — use a newer ZIM file with Zstandard compression from download.kiwix.org/zim/")
 			}
 			if err != nil {
 				return nil, err
