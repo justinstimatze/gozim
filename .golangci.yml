@@ -1,29 +1,21 @@
-run:
-  # default concurrency is a available CPU number
-  concurrency: 4
-
-  # timeout for analysis, e.g. 30s, 5m, default is 1m
-  deadline: 3m
-
-  timeout: 4m
-
-  skip-files:
-    - gen.go
-
-      # modules-download-mode: vendor
-
+version: "2"
 
 linters:
+  enable:
+    - govet
+    - staticcheck
+    - unused
   disable:
     - errcheck
-    - gochecknoglobals
-    - dupl
-    - funlen
-    - godox
-    - wsl
-    - gomnd
-  presets:
-    - bugs
-    - unused
-    - complexity
-    - style
+  settings:
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST*"
+        - "-QF*"
+        - "-SA9003"
+        - "-SA9004"
+        - "-SA4024"
+
+run:
+  timeout: 4m

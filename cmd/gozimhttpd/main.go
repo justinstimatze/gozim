@@ -11,21 +11,19 @@ import (
 	"runtime/pprof"
 	"strconv"
 
-	zim "github.com/akhenakh/gozim"
-	"github.com/blevesearch/bleve"
-	lru "github.com/hashicorp/golang-lru"
+	zim "github.com/justinstimatze/gozim"
+	"github.com/blevesearch/bleve/v2"
+	lru "github.com/hashicorp/golang-lru/v2"
 
-	_ "github.com/blevesearch/bleve/analysis/lang/ar"
-	_ "github.com/blevesearch/bleve/analysis/lang/cjk"
-	_ "github.com/blevesearch/bleve/analysis/lang/ckb"
-	_ "github.com/blevesearch/bleve/analysis/lang/en"
-	_ "github.com/blevesearch/bleve/analysis/lang/fa"
-	_ "github.com/blevesearch/bleve/analysis/lang/fr"
-	_ "github.com/blevesearch/bleve/analysis/lang/hi"
-	_ "github.com/blevesearch/bleve/analysis/lang/it"
-	_ "github.com/blevesearch/bleve/analysis/lang/pt"
-
-	_ "github.com/blevesearch/bleve/index/store/goleveldb"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/ar"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/cjk"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/ckb"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/en"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/fa"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/fr"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/hi"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/it"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/pt"
 )
 
 type ResponseType int8
@@ -52,7 +50,7 @@ var (
 
 	Z *zim.ZimReader
 	// Cache is filled with CachedResponse to avoid hitting the zim file for a zim URL
-	cache *lru.ARCCache
+	cache *lru.Cache[string, CachedResponse]
 	idx   bool
 	index bleve.Index
 
@@ -139,7 +137,7 @@ func main() {
 	// the need for a cache is absolute
 	// a lot of the same urls will be called repeatedly, css, js ...
 	// avoid to look for those one
-	cache, _ = lru.NewARC(40)
+	cache, _ = lru.New[string, CachedResponse](40)
 
 	// default listening to port 8080
 	listenPath := ":8080"

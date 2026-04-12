@@ -1,76 +1,55 @@
-[![Build status](https://github.com/akhenakh/gozim/actions/workflows/build.yml/badge.svg)](https://github.com/akhenakh/gozim/actions/workflows/build.yml)
-[![Lint status](https://github.com/akhenakh/gozim/actions/workflows/lint.yml/badge.svg)](https://github.com/akhenakh/gozim/actions/workflows/lint.yml)
+[![Build status](https://github.com/justinstimatze/gozim/actions/workflows/build.yml/badge.svg)](https://github.com/justinstimatze/gozim/actions/workflows/build.yml)
+[![Lint status](https://github.com/justinstimatze/gozim/actions/workflows/lint.yml/badge.svg)](https://github.com/justinstimatze/gozim/actions/workflows/lint.yml)
 
 gozim
 =====
 
-A Go native implementation for ZIM files. See http://akhenakh.github.io/gozim
+A pure Go implementation for reading ZIM files. Zero CGO.
 
-ZIM files are used mainly as offline wikipedia copies.
+ZIM files are used mainly as offline Wikipedia copies.
+See the [ZIM format spec](https://wiki.openzim.org/wiki/ZIM_file_format) and [download ZIM files](https://download.kiwix.org/zim/).
 
-See http://openzim.org/wiki/ZIM_file_format and http://openzim.org/wiki/ZIM_File_Example
+## Install
 
-Wikipedia/Wikinews/... ZIMs can be downloaded from there http://download.kiwix.org/zim/
-
-![ScreenShot](/shots/browse.jpg)
-![ScreenShot](/shots/search.jpg)
-
-build and installation
-======================
-
-On Ubuntu/Debian youn need those packages to compile gozim
-```
-apt-get install git liblzma-dev mercurial build-essential
-```
-
-For the indexer bleve to work properly it's recommended that you use leveldb as storage.
-```
-go get -u -v -tags all github.com/blevesearch/bleve/...
-```
-
-Gozim http server is using go.rice to embed html/css in the binary install the rice command
-```
-go get github.com/GeertJohan/go.rice
-go get github.com/GeertJohan/go.rice/rice
-go install github.com/GeertJohan/go.rice
-go install github.com/GeertJohan/go.rice/rice
-```
-
-Get and build the gozim executables
 ```bash
-go get github.com/akhenakh/gozim/...
-cd $GOPATH/src/github.com/akhenakh/gozim
-go build github.com/akhenakh/gozim/cmd/gozimhttpd
-go build github.com/akhenakh/gozim/cmd/gozimindex
+go get github.com/justinstimatze/gozim
 ```
 
-After build gozimhttpd command run to embed the files:
-```
-rice append --exec gozimhttpd
-```
+## Build
 
-On OSX:
-```
-CGO_CFLAGS=`pkg-config --cflags liblzma` go build 
+```bash
+CGO_ENABLED=0 go build ./...
 ```
 
-cross-compilation
-=================
+## Test
 
-For easy cross-compilation a `!cgo` build version uses a pure go library for lzma parsing.
-The pure go library is around ~2.5x slower in benchmarks so compile on your target OS if
-performance is important.
+```bash
+CGO_ENABLED=0 go test ./...
+```
 
-running
-=======
+## Tools
 
-Optionally, build an index file: `gozimindex -path=yourzimfile.zim -index=yourzimfile.idx`
+### gozimindex
 
-Start the gozim server: `gozimhttpd -path=yourzimfile.zim [-index=yourzimfile.idx]`
+Build a Bleve fulltext index from a ZIM file:
 
-TODO
-====
-Mmap 1st 2GB on 32 bits
-Selective Gzip encode response based on content type
-func rather than if for getBytes
+```bash
+go build ./cmd/gozimindex
+./gozimindex -path=yourzimfile.zim -index=yourzimfile.idx
+```
 
+### gozimhttpd
+
+Serve ZIM content over HTTP with optional search:
+
+```bash
+go build ./cmd/gozimhttpd
+./gozimhttpd -path=yourzimfile.zim [-index=yourzimfile.idx]
+```
+
+![Browse](/shots/browse.jpg)
+![Search](/shots/search.jpg)
+
+## License
+
+MIT

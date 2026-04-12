@@ -7,12 +7,10 @@ import (
 	"log"
 
 	"github.com/PuerkitoBio/goquery"
-	zim "github.com/akhenakh/gozim"
-	"github.com/blevesearch/bleve"
-	_ "github.com/blevesearch/bleve/analysis/lang/en"
-	_ "github.com/blevesearch/bleve/analysis/lang/fr"
-
-	_ "github.com/blevesearch/bleve/index/store/goleveldb"
+	zim "github.com/justinstimatze/gozim"
+	"github.com/blevesearch/bleve/v2"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/en"
+	_ "github.com/blevesearch/bleve/v2/analysis/lang/fr"
 )
 
 type ArticleIndex struct {
@@ -23,8 +21,6 @@ type ArticleIndex struct {
 var (
 	path         = flag.String("path", "", "path for the zim file")
 	indexPath    = flag.String("index", "", "path for the index directory")
-	cpuprofile   = flag.String("cpuprofile", "", "write cpu profile to file")
-	z            *zim.ZimReader
 	lang         = flag.String("lang", "", "language for indexation")
 	batchSize    = flag.Int("batchsize", 1000, "size of bleve batches")
 	indexContent = flag.Bool("content", false, "expermintal: index the content of the page")

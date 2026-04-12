@@ -2,9 +2,9 @@ name: Lint
 
 on:
   push:
-    branches: [ master ]
+    branches: [main]
   pull_request:
-    branches: [ master ]
+    branches: [main]
 
 permissions:
   contents: read
@@ -15,9 +15,8 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
         with:
-          version: v1.43.0
-          only-new-issues: true
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v8

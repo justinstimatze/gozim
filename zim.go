@@ -10,7 +10,7 @@ import (
 	"sync"
 	"syscall"
 
-	lru "github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
@@ -68,7 +68,7 @@ func NewReader(path string, mmap bool) (*ZimReader, error) {
 		},
 	}
 	// keep 4 latest uncompressed blobs, around 1M per blob
-	bcache, _ = lru.NewARC(5)
+	bcache, _ = lru.New[uint32, []byte](5)
 
 	err = z.readFileHeaders()
 	return &z, err

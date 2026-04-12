@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"strings"
 	"sync"
 
-	lru "github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
@@ -22,7 +21,7 @@ var articlePool sync.Pool
 
 // the recent uncompressed blobs, mainly useful while indexing and asking
 // for the same blob again and again
-var bcache *lru.ARCCache
+var bcache *lru.Cache[uint32, []byte]
 
 type Article struct {
 	// EntryType is a RedirectEntry/LinkTargetEntry/DeletedEntry or an idx
@@ -161,18 +160,10 @@ func (a *Article) Data() ([]byte, error) {
 
 	// LZMA: 4, Zstandard: 5
 	if compression == 4 || compression == 5 {
-		blobLookup := func() ([]byte, bool) {
-			if v, ok := bcache.Get(a.cluster); ok {
-				b := v.([]byte)
-				return b, ok
-			}
-			return nil, false
-		}
-
 		var blob []byte
 		var ok bool
 		var dec io.ReadCloser
-		if blob, ok = blobLookup(); !ok {
+		if blob, ok = bcache.Get(a.cluster); !ok {
 			b, err := a.z.bytesRangeAt(start+1, end+1)
 			if err != nil {
 				return nil, err
@@ -190,7 +181,7 @@ func (a *Article) Data() ([]byte, error) {
 			}
 			defer dec.Close()
 			// the decoded chunk are around 1MB
-			b, err = ioutil.ReadAll(dec)
+			b, err = io.ReadAll(dec)
 			if err != nil {
 				return nil, err
 			}
@@ -198,12 +189,6 @@ func (a *Article) Data() ([]byte, error) {
 			copy(blob, b)
 			// TODO: 2 requests for the same blob could occure at the same time
 			bcache.Add(a.cluster, blob)
-		} else {
-			bi, ok := bcache.Get(a.cluster)
-			if !ok {
-				return nil, errors.New("not in cache anymore")
-			}
-			blob = bi.([]byte)
 		}
 
 		bs, err = readInt32(blob[a.blob*4:a.blob*4+4], nil)
@@ -267,17 +252,4 @@ func (a *Article) RedirectIndex() (uint32, error) {
 	}
 	// We use the cluster to save the redirect index position for RedirectEntry type
 	return a.cluster, nil
-}
-
-func (a *Article) blobOffsetsAtIdx(z *ZimReader) (start, end uint64) {
-	idx := a.blob
-	offset := z.clusterPtrPos + uint64(idx)*8
-	start, err := readInt64(z.bytesRangeAt(offset, offset+8))
-	if err != nil {
-		return
-	}
-	offset = z.clusterPtrPos + uint64(idx+1)*8
-	end, _ = readInt64(z.bytesRangeAt(offset, offset+8))
-
-	return
 }

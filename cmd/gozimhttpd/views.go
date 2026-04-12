@@ -7,8 +7,8 @@ import (
 	"path"
 	"strconv"
 
-	zim "github.com/akhenakh/gozim"
-	"github.com/blevesearch/bleve"
+	zim "github.com/justinstimatze/gozim"
+	"github.com/blevesearch/bleve/v2"
 )
 
 const (
@@ -16,9 +16,7 @@ const (
 )
 
 func cacheLookup(url string) (*CachedResponse, bool) {
-	if v, ok := cache.Get(url); ok {
-		c := v.(CachedResponse)
-
+	if c, ok := cache.Get(url); ok {
 		return &c, ok
 	}
 
