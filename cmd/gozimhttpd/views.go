@@ -232,9 +232,7 @@ func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 	itemCount := 20
 	opts := []zim.SearchOption{
 		zim.WithOffset(itemCount * pageNumber),
-	}
-	if entry.IndexPath != "" {
-		opts = append(opts, zim.WithIndexPath(entry.IndexPath))
+		zim.WithIndexPath(entry.IndexPath),
 	}
 
 	results, err := entry.Archive.Search(q, itemCount, opts...)

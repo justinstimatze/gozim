@@ -34,15 +34,10 @@
         </div>
         <div id="navbar" class="navbar-collapse collapse">
           <ul class="nav navbar-nav">
-            <li><a href="/">Home</a></li>
-            <li><a href="/browse/">Browse</a></li>
-            <li><a href="/search">Search</a></li>
-            <li><a class="active" href="/about/">About</a></li>
+            <li><a href="/">Library</a></li>
+            <li class="active"><a href="/about/">About</a></li>
 
           </ul>
-          <form class="navbar-form navbar-right" role="form" action="/search/">
-            <input type="text" class="form-control" name="search_data" id="search_data" placeholder="Search...">
-          </form>
         </div><!--/.nav-collapse -->
       </div>
     </nav>
@@ -73,7 +68,7 @@ As it serves regular web pages, it works with any WIFI/HTTP capable clients: <a 
 <li>Download non indexed ZIM files (Gozim is using its own index system)</li>
 <li>Create the optional index <code>gozimindex -path=yourzimfile.zim -indexPath=yourzimfile.idx</code> this gives you a full text search on the article's titles</li>
 <li>Start the web server as follow
-<code>gozimhttpd -path=yourzimfile.zim -index=yourzimfile.idx</code> and launch your browser to http://yourip:8080</li>
+<code>gozimhttpd -path=yourzimfile.zim -index=yourzimfile.idx</code> or <code>gozimhttpd -dir=/path/to/zims/</code> and launch your browser to http://yourip:8080</li>
 <li>Gozim is open source on <a href="https://github.com/justinstimatze/gozim">GitHub</a></li>
 </ul>
 
@@ -95,4 +90,3 @@ As it serves regular web pages, it works with any WIFI/HTTP capable clients: <a 
 
   </body>
 </html>
-
