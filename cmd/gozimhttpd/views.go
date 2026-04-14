@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"path"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	zim "github.com/justinstimatze/gozim"
 )
@@ -14,17 +15,18 @@ const (
 	ArticlesPerPage = 16
 )
 
-func cacheLookup(url string) (*CachedResponse, bool) {
-	if c, ok := cache.Get(url); ok {
+func (s *Server) cacheLookup(key string) (*CachedResponse, bool) {
+	if c, ok := s.cache.Get(key); ok {
 		return &c, ok
 	}
 	return nil, false
 }
 
-func handleCachedResponse(cr *CachedResponse, w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCachedResponse(cr *CachedResponse, w http.ResponseWriter, r *http.Request, slug string) {
 	if cr.ResponseType == RedirectResponse {
-		log.Printf("302 from %s to %s\n", r.URL.Path, "zim/"+string(cr.Data))
-		http.Redirect(w, r, "/zim/"+string(cr.Data), http.StatusMovedPermanently)
+		target := "/" + slug + "/zim/" + string(cr.Data)
+		log.Printf("302 from %s to %s\n", r.URL.Path, target)
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
 	} else if cr.ResponseType == NoResponse {
 		log.Printf("404 %s\n", r.URL.Path)
 		http.NotFound(w, r)
@@ -36,80 +38,161 @@ func handleCachedResponse(cr *CachedResponse, w http.ResponseWriter, r *http.Req
 	}
 }
 
-func zimHandler(w http.ResponseWriter, r *http.Request) {
-	url := r.URL.Path[5:]
-	if cr, iscached := cacheLookup(url); iscached {
-		handleCachedResponse(cr, w, r)
+func (s *Server) resolveArchive(w http.ResponseWriter, r *http.Request) (*zim.LibraryEntry, string) {
+	slug := r.PathValue("slug")
+	entry, ok := s.lib.Get(slug)
+	if !ok {
+		http.NotFound(w, r)
+		return nil, ""
+	}
+	return entry, slug
+}
+
+func (s *Server) zimHandler(w http.ResponseWriter, r *http.Request) {
+	entry, slug := s.resolveArchive(w, r)
+	if entry == nil {
 		return
 	}
 
-	entry, err := archive.GetEntryByFullPath(url)
+	prefix := "/" + slug + "/zim/"
+	url := strings.TrimPrefix(r.URL.Path, prefix)
+	cacheKey := slug + ":" + url
+
+	if cr, iscached := s.cacheLookup(cacheKey); iscached {
+		s.handleCachedResponse(cr, w, r, slug)
+		return
+	}
+
+	e, err := entry.Archive.GetEntryByFullPath(url)
 	if err != nil {
-		cache.Add(url, CachedResponse{ResponseType: NoResponse})
-	} else if entry.IsRedirect() {
-		target, err := entry.RedirectTarget()
+		s.cache.Add(cacheKey, CachedResponse{ResponseType: NoResponse})
+	} else if e.IsRedirect() {
+		target, err := e.RedirectTarget()
 		if err != nil {
-			cache.Add(url, CachedResponse{ResponseType: NoResponse})
+			s.cache.Add(cacheKey, CachedResponse{ResponseType: NoResponse})
 		} else {
-			cache.Add(url, CachedResponse{
+			s.cache.Add(cacheKey, CachedResponse{
 				ResponseType: RedirectResponse,
 				Data:         []byte(target.FullPath()),
 			})
 		}
 	} else {
-		data, err := entry.Content()
+		data, err := e.Content()
 		if err != nil {
-			cache.Add(url, CachedResponse{ResponseType: NoResponse})
+			s.cache.Add(cacheKey, CachedResponse{ResponseType: NoResponse})
 		} else {
-			cache.Add(url, CachedResponse{
+			s.cache.Add(cacheKey, CachedResponse{
 				ResponseType: DataResponse,
 				Data:         data,
-				MimeType:     entry.MimeType(),
+				MimeType:     e.MimeType(),
 			})
 		}
 	}
 
-	if cr, iscached := cacheLookup(url); iscached {
-		handleCachedResponse(cr, w, r)
+	if cr, iscached := s.cacheLookup(cacheKey); iscached {
+		s.handleCachedResponse(cr, w, r, slug)
 	}
 }
 
-func homeHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) libraryHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
-		http.Redirect(w, r, "/zim"+r.URL.Path, http.StatusMovedPermanently)
+		http.NotFound(w, r)
+		return
+	}
+
+	// If only one archive, redirect to its home
+	if s.lib.Len() == 1 {
+		slugs := s.lib.Slugs()
+		http.Redirect(w, r, "/"+slugs[0]+"/", http.StatusFound)
+		return
+	}
+
+	type archiveInfo struct {
+		Slug        string
+		Title       string
+		Description string
+		Language    string
+		EntryCount  string
+		HomeURL     string
+	}
+
+	var archives []archiveInfo
+	for slug, entry := range s.lib.Entries() {
+		title := entry.Archive.Title()
+		if title == "" {
+			title = filepath.Base(entry.Path)
+		}
+		archives = append(archives, archiveInfo{
+			Slug:        slug,
+			Title:       title,
+			Description: entry.Archive.Description(),
+			Language:    entry.Archive.Language(),
+			EntryCount:  strconv.FormatUint(uint64(entry.Archive.EntryCount()), 10),
+			HomeURL:     "/" + slug + "/",
+		})
+	}
+
+	d := map[string]interface{}{
+		"Archives": archives,
+	}
+
+	if err := s.templates.ExecuteTemplate(w, "library.html", d); err != nil {
+		http.Error(w, err.Error(), 500)
+	}
+}
+
+func (s *Server) archiveHomeHandler(w http.ResponseWriter, r *http.Request) {
+	entry, slug := s.resolveArchive(w, r)
+	if entry == nil {
+		return
+	}
+
+	// If the path has more after /{slug}/, redirect to zim handler
+	trimmed := strings.TrimPrefix(r.URL.Path, "/"+slug+"/")
+	if trimmed != "" {
+		http.Redirect(w, r, "/"+slug+"/zim/"+trimmed, http.StatusMovedPermanently)
 		return
 	}
 
 	var mainURL string
 	var hasMainPage bool
 
-	mainEntry, err := archive.MainEntry()
+	mainEntry, err := entry.Archive.MainEntry()
 	if err == nil {
 		hasMainPage = true
-		mainURL = "/zim/" + mainEntry.FullPath()
+		mainURL = "/" + slug + "/zim/" + mainEntry.FullPath()
 	}
 
 	d := map[string]interface{}{
-		"Path":        path.Base(*zimPath),
-		"Count":       strconv.FormatUint(uint64(archive.EntryCount()), 10),
-		"IsIndexed":   idx,
+		"Prefix":      "/" + slug,
+		"Path":        filepath.Base(entry.Path),
+		"Count":       strconv.FormatUint(uint64(entry.Archive.EntryCount()), 10),
+		"IsIndexed":   entry.IndexPath != "",
 		"HasMainPage": hasMainPage,
 		"MainURL":     mainURL,
+		"ShowLibrary": s.lib.Len() > 1,
 	}
 
-	if err := templates.ExecuteTemplate(w, "index.html", d); err != nil {
+	if err := s.templates.ExecuteTemplate(w, "index.html", d); err != nil {
 		http.Error(w, err.Error(), 500)
 	}
 }
 
-func aboutHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) aboutHandler(w http.ResponseWriter, r *http.Request) {
 	d := map[string]interface{}{}
-	if err := templates.ExecuteTemplate(w, "about.html", d); err != nil {
+	if err := s.templates.ExecuteTemplate(w, "about.html", d); err != nil {
 		http.Error(w, err.Error(), 500)
 	}
 }
 
-func searchHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
+	entry, slug := s.resolveArchive(w, r)
+	if entry == nil {
+		return
+	}
+
+	prefix := "/" + slug
+
 	pageString := r.FormValue("page")
 	pageNumber, _ := strconv.Atoi(pageString)
 	previousPage := pageNumber - 1
@@ -119,22 +202,23 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	nextPage := pageNumber + 1
 	q := r.FormValue("search_data")
 	d := map[string]interface{}{
+		"Prefix":       prefix,
 		"Query":        q,
-		"Path":         path.Base(*zimPath),
+		"Path":         filepath.Base(entry.Path),
 		"Page":         pageNumber,
 		"PreviousPage": previousPage,
 		"NextPage":     nextPage,
 	}
 
-	if !idx {
-		if err := templates.ExecuteTemplate(w, "searchNoIdx.html", d); err != nil {
+	if entry.IndexPath == "" {
+		if err := s.templates.ExecuteTemplate(w, "searchNoIdx.html", d); err != nil {
 			http.Error(w, err.Error(), 500)
 		}
 		return
 	}
 
 	if q == "" {
-		if err := templates.ExecuteTemplate(w, "search.html", d); err != nil {
+		if err := s.templates.ExecuteTemplate(w, "search.html", d); err != nil {
 			http.Error(w, err.Error(), 500)
 		}
 		return
@@ -149,11 +233,11 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	opts := []zim.SearchOption{
 		zim.WithOffset(itemCount * pageNumber),
 	}
-	if *indexPath != "" {
-		opts = append(opts, zim.WithIndexPath(*indexPath))
+	if entry.IndexPath != "" {
+		opts = append(opts, zim.WithIndexPath(entry.IndexPath))
 	}
 
-	results, err := archive.Search(q, itemCount, opts...)
+	results, err := entry.Archive.Search(q, itemCount, opts...)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -167,7 +251,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 			l = append(l, map[string]string{
 				"Score": strconv.FormatFloat(r.Score, 'f', 1, 64),
 				"Title": r.Entry.Title(),
-				"URL":   "/zim/" + r.Entry.FullPath(),
+				"URL":   prefix + "/zim/" + r.Entry.FullPath(),
 			})
 		}
 		d["Hits"] = l
@@ -176,19 +260,25 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 		d["Hits"] = 0
 	}
 
-	if err := templates.ExecuteTemplate(w, "searchResult.html", d); err != nil {
+	if err := s.templates.ExecuteTemplate(w, "searchResult.html", d); err != nil {
 		http.Error(w, err.Error(), 500)
 	}
 }
 
-func browseHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) browseHandler(w http.ResponseWriter, r *http.Request) {
+	entry, slug := s.resolveArchive(w, r)
+	if entry == nil {
+		return
+	}
+
+	prefix := "/" + slug
 	var page, previousPage, nextPage int
 
 	if p := r.URL.Query().Get("page"); p != "" {
 		page, _ = strconv.Atoi(p)
 	}
 
-	entryCount := int(archive.EntryCount())
+	entryCount := int(entry.Archive.EntryCount())
 	if page*ArticlesPerPage-1 >= entryCount {
 		http.NotFound(w, r)
 		return
@@ -201,7 +291,7 @@ func browseHandler(w http.ResponseWriter, r *http.Request) {
 
 	entries := make([]browseEntry, 0, ArticlesPerPage)
 	for i := page * ArticlesPerPage; i < page*ArticlesPerPage+ArticlesPerPage && i < entryCount; i++ {
-		e, err := archive.GetEntryByIndex(uint32(i))
+		e, err := entry.Archive.GetEntryByIndex(uint32(i))
 		if err != nil {
 			continue
 		}
@@ -209,7 +299,7 @@ func browseHandler(w http.ResponseWriter, r *http.Request) {
 		if title == "" {
 			title = e.FullPath()
 		}
-		entries = append(entries, browseEntry{Title: title, URL: "/zim/" + e.FullPath()})
+		entries = append(entries, browseEntry{Title: title, URL: prefix + "/zim/" + e.FullPath()})
 	}
 
 	if page == 0 {
@@ -225,13 +315,14 @@ func browseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d := map[string]interface{}{
+		"Prefix":       prefix,
 		"Page":         page,
 		"PreviousPage": previousPage,
 		"NextPage":     nextPage,
 		"Articles":     entries,
 	}
 
-	if err := templates.ExecuteTemplate(w, "browse.html", d); err != nil {
+	if err := s.templates.ExecuteTemplate(w, "browse.html", d); err != nil {
 		http.Error(w, err.Error(), 500)
 	}
 }

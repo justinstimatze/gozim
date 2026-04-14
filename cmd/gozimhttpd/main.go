@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/pprof"
 	"strconv"
 
@@ -29,18 +30,19 @@ type CachedResponse struct {
 	MimeType     string
 }
 
+type Server struct {
+	lib       *zim.Library
+	cache     *lru.Cache[string, CachedResponse]
+	templates *template.Template
+}
+
 var (
 	port       = flag.Int("port", -1, "port to listen to, read HOST env if not specified, default to 8080 otherwise")
-	zimPath    = flag.String("path", "", "path for the zim file")
-	indexPath  = flag.String("index", "", "path for the index file")
+	zimPath    = flag.String("path", "", "path for a single zim file")
+	zimDir     = flag.String("dir", "", "path to a directory of zim files")
+	indexPath  = flag.String("index", "", "path for the index file (single-file mode only)")
 	mmapFlag   = flag.Bool("mmap", false, "use mmap")
 	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-
-	archive *zim.Archive
-	cache   *lru.Cache[string, CachedResponse]
-	idx     bool
-
-	templates *template.Template
 
 	//go:embed static
 	staticFS embed.FS
@@ -53,8 +55,11 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	flag.Parse()
-	if *zimPath == "" {
-		log.Fatal("provide a zim file path")
+	if *zimPath == "" && *zimDir == "" {
+		log.Fatal("provide -path or -dir")
+	}
+	if *zimPath != "" && *zimDir != "" {
+		log.Fatal("-path and -dir are mutually exclusive")
 	}
 
 	if *cpuprofile != "" {
@@ -75,45 +80,54 @@ func main() {
 		}()
 	}
 
-	// Open the archive
 	var opts []zim.Option
 	if *mmapFlag {
 		log.Println("Using mmap")
 		opts = append(opts, zim.WithMmap())
 	}
 
-	var err error
-	archive, err = zim.Open(*zimPath, opts...)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer archive.Close()
-
-	// Check for search index
-	if indexPath != nil && *indexPath != "" {
-		if _, err := os.Stat(*indexPath); err != nil {
+	var lib *zim.Library
+	if *zimDir != "" {
+		var err error
+		lib, err = zim.OpenLibrary(*zimDir, opts...)
+		if err != nil {
 			log.Fatal(err)
 		}
-		idx = true
+	} else {
+		// Single-file mode: create a temp dir with a symlink so OpenLibrary works
+		lib = mustLoadSingle(*zimPath, *indexPath, opts...)
+	}
+	defer lib.Close()
+
+	for _, e := range lib.Errors() {
+		log.Printf("warning: %v", e)
+	}
+	for slug, entry := range lib.Entries() {
+		idx := ""
+		if entry.IndexPath != "" {
+			idx = " (indexed)"
+		}
+		log.Printf("loaded: %s → %s%s", slug, filepath.Base(entry.Path), idx)
 	}
 
 	tpls, err := template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		log.Fatal(err)
 	}
-	templates = tpls
 
+	cache, _ := lru.New[string, CachedResponse](40)
+	srv := &Server{lib: lib, cache: cache, templates: tpls}
+
+	mux := http.NewServeMux()
 	fileServer := http.FileServer(http.FS(staticFS))
-	http.Handle("/static/", fileServer)
-
-	http.HandleFunc("/zim/", makeGzipHandler(zimHandler))
-	http.HandleFunc("/search/", makeGzipHandler(searchHandler))
-	http.HandleFunc("/browse/", makeGzipHandler(browseHandler))
-	http.HandleFunc("/about/", makeGzipHandler(aboutHandler))
-	http.HandleFunc("/robots.txt", robotHandler)
-	http.HandleFunc("/", makeGzipHandler(homeHandler))
-
-	cache, _ = lru.New[string, CachedResponse](40)
+	mux.Handle("/static/", fileServer)
+	mux.HandleFunc("/robots.txt", robotHandler)
+	mux.HandleFunc("/about/", makeGzipHandler(srv.aboutHandler))
+	mux.HandleFunc("/{slug}/zim/", makeGzipHandler(srv.zimHandler))
+	mux.HandleFunc("/{slug}/search/", makeGzipHandler(srv.searchHandler))
+	mux.HandleFunc("/{slug}/browse/", makeGzipHandler(srv.browseHandler))
+	mux.HandleFunc("/{slug}/", makeGzipHandler(srv.archiveHomeHandler))
+	mux.HandleFunc("/", makeGzipHandler(srv.libraryHandler))
 
 	listenPath := ":8080"
 	if len(os.Getenv("PORT")) > 0 {
@@ -124,7 +138,56 @@ func main() {
 	}
 
 	log.Println("Listening on", listenPath)
-	if err := http.ListenAndServe(listenPath, nil); err != nil {
+	if err := http.ListenAndServe(listenPath, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// mustLoadSingle wraps a single ZIM file into a Library.
+// If -index is provided, it creates a symlink to the index next to the ZIM.
+func mustLoadSingle(path, idxPath string, opts ...zim.Option) *zim.Library {
+	// Create a temp dir with a symlink to the ZIM file
+	dir, err := os.MkdirTemp("", "gozim-single-*")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	name := filepath.Base(path)
+	if err := os.Symlink(absPath, filepath.Join(dir, name)); err != nil {
+		log.Fatal(err)
+	}
+
+	// If index path is provided, symlink it next to the ZIM for auto-discovery
+	if idxPath != "" {
+		absIdx, err := filepath.Abs(idxPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		stem := name[:len(name)-len(filepath.Ext(name))]
+		// Detect if it's a bleve dir or idx file
+		fi, err := os.Stat(absIdx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		var linkName string
+		if fi.IsDir() {
+			linkName = stem + ".bleve"
+		} else {
+			linkName = stem + ".idx"
+		}
+		if err := os.Symlink(absIdx, filepath.Join(dir, linkName)); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	lib, err := zim.OpenLibrary(dir, opts...)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return lib
 }

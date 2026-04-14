@@ -34,13 +34,14 @@
         </div>
         <div id="navbar" class="navbar-collapse collapse">
           <ul class="nav navbar-nav">
-            <li class="active"><a href="/">Home</a></li>
-            <li><a href="/browse/">Browse</a></li>
-            <li><a href="/search">Search</a></li>
+            {{if .ShowLibrary}}<li><a href="/">Library</a></li>{{end}}
+            <li class="active"><a href="{{ .Prefix }}/">Home</a></li>
+            <li><a href="{{ .Prefix }}/browse/">Browse</a></li>
+            <li><a href="{{ .Prefix }}/search/">Search</a></li>
             <li><a href="/about/">About</a></li>
 
           </ul>
-          <form class="navbar-form navbar-right" role="form" action="/search/">
+          <form class="navbar-form navbar-right" role="form" action="{{ .Prefix }}/search/">
             <input type="text" class="form-control" name="search_data" id="search_data" placeholder="Search...">
           </form>
         </div><!--/.nav-collapse -->
@@ -75,4 +76,3 @@
 
   </body>
 </html>
-
