@@ -39,7 +39,10 @@ func (s *Server) handleCachedResponse(cr *CachedResponse, w http.ResponseWriter,
 }
 
 func (s *Server) resolveArchive(w http.ResponseWriter, r *http.Request) (*zim.LibraryEntry, string) {
-	slug := r.PathValue("slug")
+	// Extract slug from first path segment (routes are registered per-slug
+	// with literal prefixes, so PathValue is not available).
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	slug, _, _ := strings.Cut(path, "/")
 	entry, ok := s.lib.Get(slug)
 	if !ok {
 		http.NotFound(w, r)

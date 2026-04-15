@@ -123,10 +123,19 @@ func main() {
 	mux.Handle("/static/", fileServer)
 	mux.HandleFunc("/robots.txt", robotHandler)
 	mux.HandleFunc("/about/", makeGzipHandler(srv.aboutHandler))
-	mux.HandleFunc("/{slug}/zim/", makeGzipHandler(srv.zimHandler))
-	mux.HandleFunc("/{slug}/search/", makeGzipHandler(srv.searchHandler))
-	mux.HandleFunc("/{slug}/browse/", makeGzipHandler(srv.browseHandler))
-	mux.HandleFunc("/{slug}/", makeGzipHandler(srv.archiveHomeHandler))
+	// Register per-archive routes with literal prefixes to avoid
+	// wildcard conflicts with /static/ and /about/ in Go's ServeMux.
+	reserved := map[string]bool{"static": true, "about": true}
+	for slug := range lib.Entries() {
+		if reserved[slug] {
+			log.Printf("warning: slug %q conflicts with reserved path, skipping", slug)
+			continue
+		}
+		mux.HandleFunc("/"+slug+"/zim/", makeGzipHandler(srv.zimHandler))
+		mux.HandleFunc("/"+slug+"/search/", makeGzipHandler(srv.searchHandler))
+		mux.HandleFunc("/"+slug+"/browse/", makeGzipHandler(srv.browseHandler))
+		mux.HandleFunc("/"+slug+"/", makeGzipHandler(srv.archiveHomeHandler))
+	}
 	mux.HandleFunc("/", makeGzipHandler(srv.libraryHandler))
 
 	listenPath := ":8080"
