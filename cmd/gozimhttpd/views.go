@@ -150,8 +150,11 @@ func (s *Server) archiveHomeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If the path has more after /{slug}/, redirect to zim handler
-	trimmed := strings.TrimPrefix(r.URL.Path, "/"+slug+"/")
+	// If the path has more after /{slug}/, redirect to zim handler.
+	// Use EscapedPath so percent-encoded segments (e.g. %27 for apostrophe)
+	// survive the redirect — r.URL.Path is decoded and would emit a literal
+	// apostrophe that the next-hop router can't match.
+	trimmed := strings.TrimPrefix(r.URL.EscapedPath(), "/"+slug+"/")
 	if trimmed != "" {
 		http.Redirect(w, r, "/"+slug+"/zim/"+trimmed, http.StatusMovedPermanently)
 		return
