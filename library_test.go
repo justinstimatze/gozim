@@ -180,6 +180,29 @@ func TestLibraryIndexDiscovery(t *testing.T) {
 	}
 }
 
+func TestLibraryIndexDiscoveryFullName(t *testing.T) {
+	// Index named by appending .bleve to the full ZIM filename, i.e.
+	// "wiki.zim.bleve" — the natural form, and what gozimindex produces when
+	// you point -index at "<zimpath>.bleve".
+	dir := makeLibraryDir(t, "wiki.zim")
+
+	bleveDir := filepath.Join(dir, "wiki.zim.bleve")
+	if err := os.Mkdir(bleveDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	lib, err := OpenLibrary(dir)
+	if err != nil {
+		t.Fatalf("OpenLibrary: %v", err)
+	}
+	defer lib.Close()
+
+	entry, _ := lib.Get("wiki")
+	if entry.IndexPath != bleveDir {
+		t.Errorf("IndexPath = %q, want %q", entry.IndexPath, bleveDir)
+	}
+}
+
 func TestLibraryPartialFailure(t *testing.T) {
 	dir := makeLibraryDir(t, "good.zim")
 
@@ -224,7 +247,7 @@ func TestSlugify(t *testing.T) {
 		{"simple.zim", "simple"},
 		{"UPPER.zim", "upper"},
 		{"a__b--c.zim", "a-b-c"},
-		{"___.zim", ""},   // edge case: all non-alnum
+		{"___.zim", ""}, // edge case: all non-alnum
 		{"123.zim", "123"},
 		{"hello world.zim", "hello-world"},
 	}

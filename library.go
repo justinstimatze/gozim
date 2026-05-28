@@ -84,9 +84,8 @@ func OpenLibrary(dir string, opts ...Option) (*Library, error) {
 			slug = base + "-" + strconv.Itoa(slugCount[base])
 		}
 
-		// Auto-discover sibling index
-		stem := strings.TrimSuffix(name, filepath.Ext(name))
-		indexPath := discoverIndex(dir, stem)
+		// Auto-discover sibling index (handles both wiki.zim.bleve and wiki.bleve)
+		indexPath := discoverIndex(dir, name)
 
 		lib.entries[slug] = &LibraryEntry{
 			Archive:   a,
@@ -109,14 +108,23 @@ func OpenLibrary(dir string, opts ...Option) (*Library, error) {
 }
 
 // discoverIndex probes for a Bleve index directory or .idx file next to the ZIM.
-func discoverIndex(dir, stem string) string {
-	bleve := filepath.Join(dir, stem+".bleve")
-	if fi, err := os.Stat(bleve); err == nil && fi.IsDir() {
-		return bleve
+// It accepts both common naming conventions: the index built by appending the
+// suffix to the full filename ("wiki.zim.bleve") and to the extension-stripped
+// stem ("wiki.bleve"). The full-name form is checked first since it is what you
+// get by simply appending ".bleve" to the ZIM path.
+func discoverIndex(dir, name string) string {
+	stem := strings.TrimSuffix(name, filepath.Ext(name))
+	for _, base := range []string{name, stem} {
+		bleve := filepath.Join(dir, base+".bleve")
+		if fi, err := os.Stat(bleve); err == nil && fi.IsDir() {
+			return bleve
+		}
 	}
-	idx := filepath.Join(dir, stem+".idx")
-	if fi, err := os.Stat(idx); err == nil && !fi.IsDir() {
-		return idx
+	for _, base := range []string{name, stem} {
+		idx := filepath.Join(dir, base+".idx")
+		if fi, err := os.Stat(idx); err == nil && !fi.IsDir() {
+			return idx
+		}
 	}
 	return ""
 }

@@ -3,7 +3,7 @@
 
 # gozim
 
-Pure Go ZIM file reader with fulltext search. Zero CGO. Zero Python. Zero HTTP.
+Pure Go ZIM file reader with fulltext search. Zero CGO. Zero Python. Zero subprocesses.
 
 **The problem:** AI agents and Go tools that need Wikipedia access typically call an API (rate-limited, requires internet) or shell out to Python/C++ (fragile, hard to deploy). ZIM files give you all of Wikipedia in a single 90GB file — but until now, reading them from Go meant CGO bindings to libzim or external processes.
 
@@ -104,13 +104,21 @@ CGO_ENABLED=0 go test ./...
 
 **gozimindex** — Build a fulltext search index:
 ```bash
-go run ./cmd/gozimindex -path=wikipedia.zim -index=wikipedia.idx
+go run ./cmd/gozimindex -path=wikipedia.zim -index=wikipedia.zim.bleve
+```
+Naming the index `<file>.zim.bleve` (or `<file>.bleve`) lets the library and the
+HTTP/MCP servers auto-discover it next to the ZIM.
+
+**gozimhttpd** — Serve ZIM content over HTTP (single file or a directory of ZIMs):
+```bash
+go run ./cmd/gozimhttpd -path=wikipedia.zim [-index=wikipedia.zim.bleve]
 ```
 
-**gozimhttpd** — Serve ZIM content over HTTP:
+**gozimmcp** — Serve ZIM content to LLMs over the [Model Context Protocol](https://modelcontextprotocol.io):
 ```bash
-go run ./cmd/gozimhttpd -path=wikipedia.zim [-index=wikipedia.idx]
+go run ./cmd/gozimmcp /path/to/zim-dir
 ```
+A pure-Go, flat-memory replacement for openzim-mcp. See [cmd/gozimmcp](cmd/gozimmcp/).
 
 ## License
 

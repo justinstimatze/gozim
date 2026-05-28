@@ -12,6 +12,11 @@ _testmain.go
 *.bleve/
 cmd/gozimhttpd/gozimhttpd
 cmd/gozimindex/gozimindex
+cmd/gozimmcp/gozimmcp
+# accidental builds in the repo root (go build ./cmd/... from the root)
+/gozimhttpd
+/gozimindex
+/gozimmcp
 
 # Development tools
 .defn/

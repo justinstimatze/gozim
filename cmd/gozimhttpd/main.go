@@ -12,8 +12,8 @@ import (
 	"runtime/pprof"
 	"strconv"
 
-	zim "github.com/justinstimatze/gozim"
 	lru "github.com/hashicorp/golang-lru/v2"
+	zim "github.com/justinstimatze/gozim"
 )
 
 type ResponseType int8
