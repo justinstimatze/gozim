@@ -150,31 +150,11 @@ func (a *article) readCompressed(start, end uint64, compression byte, extended b
 }
 
 func (a *article) readUncompressed(start uint64, extended bool) ([]byte, error) {
-	pos := start + 1
-
-	var bs, be uint64
-	if extended {
-		off := uint64(a.blob) * 8
-		b, err := a.z.bytesRangeAt(pos+off, pos+off+16)
-		if err != nil {
-			return nil, err
-		}
-		bs, be = le64(b[0:8]), le64(b[8:16])
-	} else {
-		off := uint64(a.blob) * 4
-		b, err := a.z.bytesRangeAt(pos+off, pos+off+8)
-		if err != nil {
-			return nil, err
-		}
-		bs, be = uint64(le32(b[0:4])), uint64(le32(b[4:8]))
+	bs, be, err := a.uncompressedBlobRange(start, extended)
+	if err != nil {
+		return nil, err
 	}
-
-	// Checking be against size-pos (once pos is known to be in range) keeps
-	// pos+be from overflowing as well as from running past the file.
-	if pos > a.z.size || bs > be || be > a.z.size-pos {
-		return nil, fmt.Errorf("blob %d has invalid range [%d, %d) at offset %d", a.blob, bs, be, pos)
-	}
-	b, err := a.z.bytesRangeAt(pos+bs, pos+be)
+	b, err := a.z.bytesRangeAt(bs, be)
 	if err != nil || len(a.z.mmap) == 0 {
 		return b, err
 	}
@@ -213,4 +193,51 @@ func blobOffsets(data []byte, blobIdx uint32, extended bool) (start, end uint64)
 	}
 	off := uint64(blobIdx) * 4
 	return uint64(le32(data[off : off+4])), uint64(le32(data[off+4 : off+8]))
+}
+
+// uncompressedBlobRange returns the file range [start, end) of this entry's
+// blob in the uncompressed cluster that begins at clusterStart.
+func (a *article) uncompressedBlobRange(clusterStart uint64, extended bool) (uint64, uint64, error) {
+	pos := clusterStart + 1
+
+	var bs, be uint64
+	if extended {
+		off := uint64(a.blob) * 8
+		b, err := a.z.bytesRangeAt(pos+off, pos+off+16)
+		if err != nil {
+			return 0, 0, err
+		}
+		bs, be = le64(b[0:8]), le64(b[8:16])
+	} else {
+		off := uint64(a.blob) * 4
+		b, err := a.z.bytesRangeAt(pos+off, pos+off+8)
+		if err != nil {
+			return 0, 0, err
+		}
+		bs, be = uint64(le32(b[0:4])), uint64(le32(b[4:8]))
+	}
+
+	// Checking be against size-pos (once pos is known to be in range) keeps
+	// pos+be from overflowing as well as from running past the file.
+	if pos > a.z.size || bs > be || be > a.z.size-pos {
+		return 0, 0, fmt.Errorf("blob %d has invalid range [%d, %d) at offset %d", a.blob, bs, be, pos)
+	}
+	return pos + bs, pos + be, nil
+}
+
+// uncompressedRange returns where this entry's content sits in the file. It
+// fails for entries in compressed clusters, whose bytes can't be read in place.
+func (a *article) uncompressedRange() (uint64, uint64, error) {
+	start, _, err := a.z.clusterOffsetsAtIdx(a.cluster)
+	if err != nil {
+		return 0, 0, err
+	}
+	info, err := a.z.bytesRangeAt(start, start+1)
+	if err != nil {
+		return 0, 0, err
+	}
+	if c := info[0] & 0x0f; c != 0 && c != 1 {
+		return 0, 0, fmt.Errorf("cluster %d is compressed (type %d)", a.cluster, c)
+	}
+	return a.uncompressedBlobRange(start, info[0]&0x10 != 0)
 }

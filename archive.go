@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"sync"
 )
 
 const defaultBlobCacheSize = 5
@@ -15,6 +17,9 @@ type Archive struct {
 	r      *zimReader
 	meta   metadataCache
 	search searchState
+
+	listingOnce sync.Once
+	listing     titleListing
 }
 
 type archiveConfig struct {
@@ -125,8 +130,12 @@ func (a *Archive) SearchTitles(prefix string, limit int) ([]Entry, error) {
 	ns := a.articleNamespace()
 
 	// v6 ZIM files set titlePtrPos to 0xFFFFFFFFFFFFFFFF (no title list).
-	// Fall back to scanning the URL index within the article namespace.
+	// They normally ship a title-ordered listing instead; without one, fall
+	// back to scanning the URL index within the article namespace.
 	if a.r.titlePtrPos == 0xFFFFFFFFFFFFFFFF {
+		if l := a.titleListing(); l.count > 0 {
+			return a.searchTitlesByListing(l, ns, prefix, limit)
+		}
 		return a.searchTitlesByURL(ns, prefix, limit)
 	}
 
@@ -259,3 +268,86 @@ func (a *Archive) Close() error {
 }
 
 func (a *Archive) String() string { return a.r.String() }
+
+// titleListing locates X/listing/titleOrdered/v1, the uint32 URL indexes of a
+// v6 archive's front articles sorted by title. It is read in place from the
+// file, so it must sit in an uncompressed cluster; count is 0 when absent.
+type titleListing struct {
+	off   uint64
+	count uint32
+}
+
+func (a *Archive) titleListing() titleListing {
+	a.listingOnce.Do(func() {
+		e, err := a.GetEntryByFullPath("X/listing/titleOrdered/v1")
+		if err != nil {
+			return
+		}
+		start, end, err := e.article.uncompressedRange()
+		if err != nil || (end-start)%4 != 0 || (end-start)/4 > uint64(a.r.articleCount) {
+			return
+		}
+		a.listing = titleListing{off: start, count: uint32((end - start) / 4)}
+	})
+	return a.listing
+}
+
+// listingURLIdx returns the URL index stored at position i of the listing.
+func (a *Archive) listingURLIdx(l titleListing, i uint32) (uint32, error) {
+	off := l.off + uint64(i)*4
+	b, err := a.r.bytesRangeAt(off, off+4)
+	if err != nil {
+		return 0, err
+	}
+	idx := le32(b)
+	if idx >= a.r.articleCount {
+		return 0, fmt.Errorf("title listing entry %d points at entry %d of %d", i, idx, a.r.articleCount)
+	}
+	return idx, nil
+}
+
+// searchTitlesByListing binary-searches the title listing for prefix, so a
+// lookup costs about log2(count) title reads instead of a namespace scan.
+func (a *Archive) searchTitlesByListing(l titleListing, ns byte, prefix string, limit int) ([]Entry, error) {
+	titleAt := func(i uint32) (uint32, string, error) {
+		idx, err := a.listingURLIdx(l, i)
+		if err != nil {
+			return 0, "", err
+		}
+		_, title, err := a.r.readTitleAt(idx)
+		return idx, title, err
+	}
+
+	lo, hi := uint32(0), l.count
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		_, title, err := titleAt(mid)
+		if err != nil {
+			return nil, err
+		}
+		if title < prefix {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+
+	var results []Entry
+	for i := lo; i < l.count && len(results) < limit; i++ {
+		idx, title, err := titleAt(i)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasPrefix(title, prefix) {
+			break
+		}
+		art, err := a.r.articleAtIdx(idx)
+		if err != nil {
+			return nil, err
+		}
+		if art.namespace == ns {
+			results = append(results, Entry{article: art, archive: a})
+		}
+	}
+	return results, nil
+}
