@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -175,5 +176,52 @@ func TestReadCompressedCacheLimit(t *testing.T) {
 		if cached := z.blobCache.Len() == 1; cached != tc.cached {
 			t.Errorf("%d-byte cluster: cached=%v, want %v", tc.n, cached, tc.cached)
 		}
+	}
+}
+
+// TestMmapContentOutlivesClose reads uncompressed content under mmap, closes
+// the archive, then touches the bytes. If Content returned a slice of the
+// mapping this segfaults, so the scenario runs in a child process.
+func TestMmapContentOutlivesClose(t *testing.T) {
+	if os.Getenv("GOZIM_MMAP_CHILD") == "1" {
+		a, err := Open("test.zim", WithMmap())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var content []byte
+		for i := uint32(0); i < a.EntryCount() && content == nil; i++ {
+			e, err := a.GetEntryByIndex(i)
+			if err != nil {
+				continue
+			}
+			start, _, err := a.r.clusterOffsetsAtIdx(e.article.cluster)
+			if err != nil {
+				continue
+			}
+			info, err := a.r.bytesRangeAt(start, start+1)
+			if err != nil || info[0]&0x0f > 1 {
+				continue
+			}
+			if c, err := e.Content(); err == nil && len(c) > 0 {
+				content = c
+			}
+		}
+		if content == nil {
+			t.Fatal("test.zim has no uncompressed entry")
+		}
+		a.Close()
+		sum := 0
+		for _, b := range content {
+			sum += int(b)
+		}
+		t.Logf("read %d bytes after Close (sum %d)", len(content), sum)
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMmapContentOutlivesClose$", "-test.v")
+	cmd.Env = append(os.Environ(), "GOZIM_MMAP_CHILD=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("child failed: %v\n%s", err, out)
 	}
 }

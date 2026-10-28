@@ -251,7 +251,9 @@ func (a *Archive) ValidateChecksum() (bool, error) {
 	return string(computed) == string(stored), nil
 }
 
-// Close releases all resources associated with the archive.
+// Close releases all resources associated with the archive. It must not be
+// called while other methods on the archive or its entries are still running;
+// with WithMmap, a read that overlaps Close can touch unmapped memory.
 func (a *Archive) Close() error {
 	return errors.Join(a.closeSearch(), a.r.Close())
 }

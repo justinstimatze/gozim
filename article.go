@@ -174,7 +174,13 @@ func (a *article) readUncompressed(start uint64, extended bool) ([]byte, error) 
 	if pos > a.z.size || bs > be || be > a.z.size-pos {
 		return nil, fmt.Errorf("blob %d has invalid range [%d, %d) at offset %d", a.blob, bs, be, pos)
 	}
-	return a.z.bytesRangeAt(pos+bs, pos+be)
+	b, err := a.z.bytesRangeAt(pos+bs, pos+be)
+	if err != nil || len(a.z.mmap) == 0 {
+		return b, err
+	}
+	// Under mmap, b aliases the mapping that Close unmaps. Callers may keep
+	// content past Close, so hand them a copy.
+	return bytes.Clone(b), nil
 }
 
 // safeBlobOffsets extracts blob offsets with bounds checking, and verifies the
