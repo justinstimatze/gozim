@@ -139,39 +139,51 @@ func (a *article) readCompressed(start, end uint64, compression byte, extended b
 func (a *article) readUncompressed(start uint64, extended bool) ([]byte, error) {
 	pos := start + 1
 
+	var bs, be uint64
 	if extended {
 		off := uint64(a.blob) * 8
 		b, err := a.z.bytesRangeAt(pos+off, pos+off+16)
 		if err != nil {
 			return nil, err
 		}
-		bs, be := le64(b[0:8]), le64(b[8:16])
-		return a.z.bytesRangeAt(pos+bs, pos+be)
+		bs, be = le64(b[0:8]), le64(b[8:16])
+	} else {
+		off := uint64(a.blob) * 4
+		b, err := a.z.bytesRangeAt(pos+off, pos+off+8)
+		if err != nil {
+			return nil, err
+		}
+		bs, be = uint64(le32(b[0:4])), uint64(le32(b[4:8]))
 	}
 
-	off := uint64(a.blob) * 4
-	b, err := a.z.bytesRangeAt(pos+off, pos+off+8)
-	if err != nil {
-		return nil, err
+	// Checking be against size-pos (once pos is known to be in range) keeps
+	// pos+be from overflowing as well as from running past the file.
+	if pos > a.z.size || bs > be || be > a.z.size-pos {
+		return nil, fmt.Errorf("blob %d has invalid range [%d, %d) at offset %d", a.blob, bs, be, pos)
 	}
-	bs, be := uint64(le32(b[0:4])), uint64(le32(b[4:8]))
 	return a.z.bytesRangeAt(pos+bs, pos+be)
 }
 
-// safeBlobOffsets extracts blob offsets with bounds checking.
+// safeBlobOffsets extracts blob offsets with bounds checking, and verifies the
+// blob range lies inside data.
 func safeBlobOffsets(data []byte, blobIdx uint32, extended bool) (start, end uint64, err error) {
 	if extended {
 		off := uint64(blobIdx) * 8
 		if off+16 > uint64(len(data)) {
 			return 0, 0, fmt.Errorf("blob index %d out of range (cluster size %d)", blobIdx, len(data))
 		}
-		return le64(data[off : off+8]), le64(data[off+8 : off+16]), nil
+		start, end = le64(data[off:off+8]), le64(data[off+8:off+16])
+	} else {
+		off := uint64(blobIdx) * 4
+		if off+8 > uint64(len(data)) {
+			return 0, 0, fmt.Errorf("blob index %d out of range (cluster size %d)", blobIdx, len(data))
+		}
+		start, end = uint64(le32(data[off:off+4])), uint64(le32(data[off+4:off+8]))
 	}
-	off := uint64(blobIdx) * 4
-	if off+8 > uint64(len(data)) {
-		return 0, 0, fmt.Errorf("blob index %d out of range (cluster size %d)", blobIdx, len(data))
+	if start > end || end > uint64(len(data)) {
+		return 0, 0, fmt.Errorf("blob %d has invalid range [%d, %d) (cluster size %d)", blobIdx, start, end, len(data))
 	}
-	return uint64(le32(data[off : off+4])), uint64(le32(data[off+4 : off+8])), nil
+	return start, end, nil
 }
 
 // blobOffsets extracts blob offsets without bounds checking (for benchmarks/tests with known-good data).

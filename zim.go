@@ -18,6 +18,7 @@ const zimMagic = 72173914
 
 type zimReader struct {
 	f             *os.File
+	size          uint64 // file size; every read is bounds-checked against it
 	articleCount  uint32
 	clusterCount  uint32
 	urlPtrPos     uint64
@@ -49,6 +50,7 @@ func newReader(path string, cacheSize int, mmap bool) (*zimReader, error) {
 		f.Close()
 		return nil, err
 	}
+	z.size = uint64(fi.Size())
 
 	if mmap {
 		size := fi.Size()
@@ -294,10 +296,12 @@ func (z *zimReader) bytesRangeAt(start, end uint64) ([]byte, error) {
 	if z.closed.Load() {
 		return nil, errClosed
 	}
+	// Offsets come from the file itself, so a malformed archive can supply a
+	// reversed or oversized range; reject it before slicing or allocating.
+	if end < start || end > z.size {
+		return nil, fmt.Errorf("invalid read range [%d, %d) in file of size %d", start, end, z.size)
+	}
 	if len(z.mmap) > 0 {
-		if end > uint64(len(z.mmap)) {
-			return nil, fmt.Errorf("read beyond file: offset %d > size %d", end, len(z.mmap))
-		}
 		return z.mmap[start:end], nil
 	}
 	buf := make([]byte, end-start)
