@@ -99,7 +99,15 @@ func (a *Archive) Search(query string, limit int, opts ...SearchOption) ([]Searc
 		return nil, err
 	}
 
-	q := bleve.NewQueryStringQuery(query)
+	// The query string searches title and content together, so an article that
+	// mentions "Paris" often can outrank the one titled "Paris". An optional
+	// title-phrase clause lifts titles containing the whole query. Being
+	// optional, it only reorders: the query string still decides what matches.
+	title := bleve.NewMatchPhraseQuery(query)
+	title.SetField("Title")
+	q := bleve.NewBooleanQuery()
+	q.AddMust(bleve.NewQueryStringQuery(query))
+	q.AddShould(title)
 	req := bleve.NewSearchRequestOptions(q, limit, cfg.offset, false)
 	req.Fields = []string{"Title"}
 
