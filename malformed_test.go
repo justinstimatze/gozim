@@ -1,10 +1,14 @@
 package zim
 
 import (
+	"bytes"
 	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
+
+	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/klauspost/compress/zstd"
 )
 
 // newTestReader returns a zimReader over raw bytes, skipping header parsing,
@@ -115,6 +119,61 @@ func TestBytesRangeAtBounds(t *testing.T) {
 		}
 		if b, err := z.bytesRangeAt(4, 8); err != nil || len(b) != 4 {
 			t.Errorf("mmap=%v: valid range: got len %d, err %v", mmap, len(b), err)
+		}
+	}
+}
+
+// compressedCluster builds a zstd cluster whose content is n zero bytes, which
+// compresses to almost nothing and reads as one empty blob at offsets (0, 0).
+func compressedCluster(t *testing.T, n int) []byte {
+	t.Helper()
+	buf := bytes.NewBuffer([]byte{0x05})
+	enc, err := zstd.NewWriter(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := enc.Write(make([]byte, n)); err != nil {
+		t.Fatal(err)
+	}
+	if err := enc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func readTestCluster(t *testing.T, data []byte) (*zimReader, error) {
+	t.Helper()
+	z := newTestReader(t, data, false)
+	z.blobCache, _ = lru.New[uint32, []byte](5)
+	_, err := (&article{z: z}).readCompressed(0, uint64(len(data)-1), 5, false)
+	return z, err
+}
+
+func TestReadCompressedOverLimit(t *testing.T) {
+	old := maxDecompressedSize
+	maxDecompressedSize = 1 << 20
+	t.Cleanup(func() { maxDecompressedSize = old })
+
+	if _, err := readTestCluster(t, compressedCluster(t, 2<<20)); err == nil {
+		t.Fatal("cluster larger than maxDecompressedSize: expected error, got silent truncation")
+	}
+}
+
+func TestReadCompressedCacheLimit(t *testing.T) {
+	cases := []struct {
+		n      int
+		cached bool
+	}{
+		{1 << 20, true},
+		{maxCachedClusterSize + 1, false},
+	}
+	for _, tc := range cases {
+		z, err := readTestCluster(t, compressedCluster(t, tc.n))
+		if err != nil {
+			t.Fatalf("%d bytes: %v", tc.n, err)
+		}
+		if cached := z.blobCache.Len() == 1; cached != tc.cached {
+			t.Errorf("%d-byte cluster: cached=%v, want %v", tc.n, cached, tc.cached)
 		}
 	}
 }

@@ -14,8 +14,14 @@ const (
 	DeletedEntry    uint16 = 0xfffd
 )
 
-// maxDecompressedSize limits decompressed cluster size to 256MB to prevent zip bombs.
-const maxDecompressedSize = 256 << 20
+// maxDecompressedSize limits decompressed cluster size to 256MB to prevent zip
+// bombs. A var only so tests can lower it.
+var maxDecompressedSize = 256 << 20
+
+// maxCachedClusterSize is the largest decompressed cluster kept in blobCache.
+// Kiwix writes clusters of about 2 MiB, well under it. The limit stops a
+// crafted archive from pinning cacheSize clusters of maxDecompressedSize each.
+const maxCachedClusterSize = 16 << 20
 
 var (
 	errRedirectEntry = errors.New("entry is a redirect; call RedirectTarget() to follow")
@@ -112,13 +118,20 @@ func (a *article) readCompressed(start, end uint64, compression byte, extended b
 				return nil, err
 			}
 			defer dec.Close()
-			raw, err := io.ReadAll(io.LimitReader(dec, maxDecompressedSize))
+			// Read one byte past the limit so an oversized cluster is an error
+			// rather than silently truncated content.
+			raw, err := io.ReadAll(io.LimitReader(dec, int64(maxDecompressedSize)+1))
 			if err != nil {
 				return nil, err
 			}
+			if len(raw) > maxDecompressedSize {
+				return nil, fmt.Errorf("cluster %d decompresses to more than %d bytes", a.cluster, maxDecompressedSize)
+			}
 			result := make([]byte, len(raw))
 			copy(result, raw)
-			a.z.blobCache.Add(a.cluster, result)
+			if len(result) <= maxCachedClusterSize {
+				a.z.blobCache.Add(a.cluster, result)
+			}
 			return result, nil
 		})
 		if err != nil {
